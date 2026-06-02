@@ -1,6 +1,9 @@
 from app.config import Settings
+from app.core.schemas.search import SearchFilters
 from app.db.pinecone_client import get_index
 from app.repositories.paper_repository import PaperRepository
+from app.services.indexing.pinecone_text import paper_record_text
+from app.services.search.pinecone_search import search_index
 
 
 class ContentBasedRecommender:
@@ -10,15 +13,24 @@ class ContentBasedRecommender:
         self._index = get_index(settings)
 
     async def recommend(self, paper_id: str, top_k: int = 20) -> list[str]:
-        fetch = self._index.fetch(ids=[paper_id], namespace=self._settings.pinecone_namespace)
-        vectors = fetch.get("vectors", {})
-        if paper_id not in vectors:
+        doc = await self._papers.get_by_id(paper_id)
+        if not doc:
             return []
-        vector = vectors[paper_id]["values"]
-        result = self._index.query(
-            vector=vector,
-            top_k=top_k + 1,
-            namespace=self._settings.pinecone_namespace,
-            filter={"paper_id": {"$ne": paper_id}},
+
+        seed_text = paper_record_text(
+            doc.get("title", ""),
+            doc.get("abstract", ""),
+            doc.get("tags"),
         )
-        return [m["id"] for m in result.get("matches", []) if m["id"] != paper_id][:top_k]
+        if not seed_text:
+            return []
+
+        hits = await search_index(
+            self._index,
+            self._settings,
+            query=seed_text,
+            filters=SearchFilters(),
+            top_k=top_k + 1,
+        )
+        ids = [pid for pid, _ in hits]
+        return [pid for pid in ids if pid != paper_id][:top_k]

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.core.constants import EmbeddingStatus
+from app.core.constants import EmbeddingStatus, RecommendationReason
 
 
 class AuthorSchema(BaseModel):
@@ -19,10 +19,10 @@ class PaperBase(BaseModel):
     year: int | None = None
     venue: str | None = None
     citations: list[str] = Field(default_factory=list)
-    cited_by: list[str] = Field(default_factory=list)
+    cited_by_count: int = 0
     tags: list[str] = Field(
         default_factory=list,
-        description="Topic keywords (embedded with title and abstract in Pinecone)",
+        description="Topic keywords stored with paper metadata",
     )
     full_text_url: str | None = None
 
@@ -50,8 +50,14 @@ class PaperSummary(BaseModel):
     abstract_snippet: str | None = None
 
 
+class PaperRecommendation(BaseModel):
+    paper: PaperSummary
+    reason: RecommendationReason
+    score: float
+
+
 class PaperResponse(PaperInDB):
-    recommendations: list[PaperSummary] = Field(default_factory=list)
+    recommendations: list[PaperRecommendation] = Field(default_factory=list)
 
 
 class ViewHistoryEntry(BaseModel):

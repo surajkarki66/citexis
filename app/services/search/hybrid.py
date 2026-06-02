@@ -2,7 +2,6 @@ from app.config import Settings
 from app.core.schemas.search import SearchFilters, SearchRequest, SearchResponse, SearchResult
 from app.repositories.paper_repository import PaperRepository
 from app.services.search.keyword import KeywordSearchService
-from app.services.search.reranker import PassthroughReranker, Reranker
 from app.services.search.rrf import reciprocal_rank_fusion
 from app.services.search.semantic import SemanticSearchService
 
@@ -14,41 +13,30 @@ class HybridSearchService:
         paper_repo: PaperRepository,
         keyword: KeywordSearchService,
         semantic: SemanticSearchService,
-        reranker: Reranker | None = None,
     ) -> None:
         self._settings = settings
         self._papers = paper_repo
         self._keyword = keyword
         self._semantic = semantic
-        self._reranker = reranker or PassthroughReranker()
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         k = self._settings.search_top_k_per_source
-        es_ids, vec_ids = await self._run_parallel(request.query, request.filters, k)
+        es_hits, vec_hits = await self._run_parallel(request.query, request.filters, k)
+        es_ids = [pid for pid, _ in es_hits]
+        vec_ids = [pid for pid, _ in vec_hits]
         merged = reciprocal_rank_fusion([es_ids, vec_ids], k=self._settings.search_rrf_k)
-        top_merged = [pid for pid, _ in merged[: self._settings.search_rerank_top_n]]
+        top_merged = [pid for pid, _ in merged[: self._settings.search_fusion_top_n]]
 
         docs = await self._papers.get_many_by_ids(top_merged)
         doc_map = {str(d["_id"]): d for d in docs}
-        texts = [
-            f"{doc_map[pid]['title']}\n{doc_map[pid].get('abstract', '')}"
-            for pid in top_merged
-            if pid in doc_map
+        final_ids = [pid for pid in top_merged if pid in doc_map][
+            : self._settings.search_final_top_n
         ]
-        valid_ids = [pid for pid in top_merged if pid in doc_map]
-        if texts:
-            self._reranker.rerank(request.query, texts, self._settings.search_final_top_n)
-            # Reranker returns reordered texts; map back by position for skeleton.
-            final_ids = valid_ids[: self._settings.search_final_top_n]
-        else:
-            final_ids = top_merged
-
         final_ids = final_ids[: request.top_k]
+
         score_map = dict(merged)
         results: list[SearchResult] = []
         for pid in final_ids:
-            if pid not in doc_map:
-                continue
             results.append(
                 SearchResult(
                     paper=self._papers.to_summary(doc_map[pid]),
@@ -61,7 +49,7 @@ class HybridSearchService:
 
     async def _run_parallel(
         self, query: str, filters: SearchFilters, top_k: int
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
         import asyncio
 
         es_task = self._keyword.search(query, filters, top_k)

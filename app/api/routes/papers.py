@@ -3,7 +3,12 @@ from fastapi import APIRouter, HTTPException, status
 from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep
 from app.core.schemas.paper import PaperCreate, PaperResponse
 from app.core.schemas.recommendation import RecommendationResponse
-from app.workers.tasks import index_paper_task, ingest_arxiv_task
+from app.workers.tasks import (
+    index_paper_task,
+    ingest_doi_task,
+    ingest_openalex_task,
+    ingest_source_task,
+)
 
 router = APIRouter()
 
@@ -20,13 +25,21 @@ async def get_paper(
     related = await recommendations.get_related(paper_id, limit=5)
     doc = {**doc, "_id": str(doc["_id"])}
     return PaperResponse.model_validate(
-        {**doc, "recommendations": [item.paper for item in related.items]},
+        {**doc, "recommendations": [item.model_dump() for item in related.items]},
     )
 
 
 @router.get("/{paper_id}/related", response_model=RecommendationResponse)
 async def get_related(paper_id: str, recommendations: RecommendationsDep) -> RecommendationResponse:
     return await recommendations.get_related(paper_id)
+
+
+@router.delete("/{paper_id}", response_model=dict)
+async def delete_paper(paper_id: str, pipeline: IngestionDep) -> dict:
+    deleted = await pipeline.delete_paper(paper_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
+    return {"status": "deleted", "paper_id": paper_id}
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
@@ -36,8 +49,48 @@ async def ingest_paper(body: PaperCreate) -> dict:
     return {"status": "accepted", "task_id": task.id}
 
 
-@router.post("/import/arxiv", status_code=status.HTTP_202_ACCEPTED)
-async def import_arxiv(query: str = "machine learning", limit: int = 50) -> dict:
-    """Bulk import from arXiv (Phase 1)."""
-    task = ingest_arxiv_task.delay(query, limit)
-    return {"status": "accepted", "task_id": task.id}
+@router.post("/import/openalex", status_code=status.HTTP_202_ACCEPTED)
+async def import_openalex(
+    query: str = "machine learning",
+    limit: int = 50,
+    enrich: bool = True,
+) -> dict:
+    task = ingest_openalex_task.delay(query, limit, enrich)
+    return {"status": "accepted", "task_id": task.id, "source": "openalex"}
+
+
+@router.post("/import/doi", status_code=status.HTTP_202_ACCEPTED)
+async def import_doi(doi: str, enrich: bool = True) -> dict:
+    task = ingest_doi_task.delay(doi, enrich)
+    return {"status": "accepted", "task_id": task.id, "source": "crossref"}
+
+
+@router.post("/import/{source}", status_code=status.HTTP_202_ACCEPTED)
+async def import_from_source(
+    source: str,
+    query: str = "machine learning",
+    limit: int = 50,
+    enrich: bool = True,
+) -> dict:
+    """Generic import: openalex | crossref (query = DOI for crossref)."""
+    if source not in ("openalex", "crossref"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source must be openalex or crossref",
+        )
+    task = ingest_source_task.delay(source, query, limit, enrich)
+    return {"status": "accepted", "task_id": task.id, "source": source}
+
+
+@router.post("/import/doi/sync", response_model=dict)
+async def import_doi_sync(
+    doi: str,
+    pipeline: IngestionDep,
+    enrich: bool = True,
+) -> dict:
+    """Synchronous DOI ingest for testing (blocks until MongoDB + indexes complete)."""
+    from app.services.ingestion.sources.crossref import CrossrefDoiSource
+
+    source = CrossrefDoiSource()
+    result = await pipeline.ingest_from_source(source, doi, 1, enrich=enrich)
+    return {"status": "completed", **result}

@@ -9,7 +9,9 @@ class KeywordSearchService:
         self._settings = settings
         self._client = client
 
-    async def search(self, query: str, filters: SearchFilters, top_k: int = 50) -> list[str]:
+    async def search(
+        self, query: str, filters: SearchFilters, top_k: int = 50
+    ) -> list[tuple[str, float]]:
         must = [
             {
                 "multi_match": {
@@ -47,4 +49,9 @@ class KeywordSearchService:
             },
         }
         response = await self._client.search(index=self._settings.elasticsearch_index, body=body)
-        return [hit["_source"]["paper_id"] for hit in response["hits"]["hits"]]
+        results: list[tuple[str, float]] = []
+        for hit in response["hits"]["hits"]:
+            paper_id = str(hit["_source"]["paper_id"])
+            score = float(hit.get("_score") or 0.0)
+            results.append((paper_id, score))
+        return results
