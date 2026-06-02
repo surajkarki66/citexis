@@ -14,7 +14,7 @@ class UserInteractionRepository:
         return str(result.inserted_id)
 
     async def get_co_occurring_papers(self, paper_id: str, limit: int = 20) -> list[str]:
-        """Papers frequently saved/viewed with this one — Phase 3 collaborative filtering."""
+        """Papers frequently saved/viewed with this one (collaborative filtering)."""
         pipeline = [
             {"$match": {"paper_id": paper_id}},
             {"$group": {"_id": "$user_id"}},

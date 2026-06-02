@@ -4,7 +4,7 @@ from app.config import Settings
 
 _client: AsyncElasticsearch | None = None
 
-# Phase 2: run scripts/setup_es_index.py to create this index in Elasticsearch.
+# Run once: python -m scripts.setup_es_index
 PAPERS_INDEX_MAPPING = {
     "settings": {
         "analysis": {

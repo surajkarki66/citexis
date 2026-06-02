@@ -7,11 +7,14 @@ from app.api.deps import wire_app_state
 from app.api.routes import api_router
 from app.config import get_settings
 from app.db.elasticsearch import close_elasticsearch
-from app.db.mongodb import close_mongodb
+from app.db.indexes import ensure_paper_indexes
+from app.db.mongodb import close_mongodb, get_database
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
+    await ensure_paper_indexes(get_database(settings))
     wire_app_state(app)
     yield
     await close_mongodb()

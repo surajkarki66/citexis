@@ -17,7 +17,7 @@ class ElasticsearchIndexer:
             "year": doc.get("year"),
             "venue": doc.get("venue"),
             "tags": doc.get("tags", []),
-            "citation_count": len(doc.get("cited_by", [])),
+            "citation_count": int(doc.get("cited_by_count") or 0),
         }
         await self._client.index(index=self._index, id=paper_id, document=body)
 

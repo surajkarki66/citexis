@@ -12,7 +12,7 @@ Citexis splits work across three stores and two runtimes:
 |-----------------|------|
 | **MongoDB** | Canonical paper metadata, embedding status, user interactions |
 | **Elasticsearch** | BM25 keyword search over title/abstract |
-| **Pinecone** | One vector per paper (title + abstract + keywords) in `papers-abstract` |
+| **Pinecone** | Text records in `papers-abstract`; index embeds server-side |
 | **FastAPI** | HTTP API, dependency wiring, request handling |
 | **Celery + Redis** | Background ingestion and indexing (retries, bulk import) |
 
@@ -33,7 +33,6 @@ flowchart TB
         Search[search/hybrid]
         Reco[recommendations/engine]
         KG[knowledge_graph/queries]
-        Embed[embeddings/local]
     end
 
     subgraph data [Data layer]
@@ -49,7 +48,6 @@ flowchart TB
 
     UI --> Routes
     Deps --> Ingest & Search & Reco & KG
-    Ingest --> Embed
     Ingest --> Repo
     Search --> Repo
     Search --> ES
@@ -89,14 +87,13 @@ Startup wiring lives in `wire_app_state()` (`app/api/deps.py`): it builds reposi
 
 ### Data flows
 
-**Ingestion** (single paper or arXiv bulk via Celery):
+**Ingestion** (single paper or bulk import via Celery):
 
 ```
-Source (arxiv / DOI / Semantic Scholar)
+Source (OpenAlex / Crossref DOI + optional CORE enrichment)
     → normalizer          # app/services/ingestion/normalizer.py
     → MongoDB create      # paper_repository
-    → embed (local)       # title + abstract + tags (keywords)
-    → Pinecone upsert     # pinecone_indexer → papers-abstract namespace
+    → Pinecone upsert_records  # server-side embed from text field
     → Elasticsearch index # elasticsearch_indexer
     → status = INDEXED    # embedding_status on paper doc
 ```
@@ -106,13 +103,11 @@ Source (arxiv / DOI / Semantic Scholar)
 ```
 Query
     ├─ KeywordSearchService  → Elasticsearch (BM25, filters)
-    └─ SemanticSearchService → embed query → Pinecone (vector, filters)
+    └─ SemanticSearchService → Pinecone search + rerank in one call (optional)
             ↓
     reciprocal_rank_fusion (RRF)   # app/services/search/rrf.py
             ↓
     hydrate from MongoDB           # paper_repository.get_many_by_ids
-            ↓
-    optional reranker              # app/services/search/reranker.py
             ↓
     SearchResponse
 ```
@@ -134,8 +129,7 @@ paper_id
 |------|------------|
 | New API endpoint | `app/api/routes/` + register in `routes/__init__.py`; add a dep in `deps.py` if you need a new service |
 | New paper source | `app/services/ingestion/sources/` (implement `base.py`), call from a route or Celery task |
-| Change embedding model | `EMBEDDING_MODEL` in `.env`; logic in `app/services/embeddings/local.py` |
-| Tune search | `app/config.py` (`search_*` defaults), `hybrid.py`, `rrf.py`, or swap `Reranker` in `HybridSearchService` |
+| Tune search | `app/config.py` (`search_*`, `pinecone_*`), `hybrid.py`, `rrf.py` |
 | New recommendation signal | `app/services/recommendations/` + register weight in `engine.py` |
 | Graph / explore queries | `app/services/knowledge_graph/queries.py` |
 | Async long jobs | `app/workers/tasks.py` — mirror API patterns with `_build_pipeline()` |
@@ -169,15 +163,14 @@ citexis/
 │   │   ├── ingestion/
 │   │   │   ├── pipeline.py         # ingest_one / index_paper
 │   │   │   ├── normalizer.py
-│   │   │   └── sources/            # arxiv, doi_lookup, semantic_scholar
-│   │   ├── indexing/               # elasticsearch_indexer, pinecone_indexer
-│   │   ├── embeddings/             # local sentence-transformers
-│   │   ├── search/                 # keyword, semantic, rrf, hybrid, reranker
+│   │   │   └── sources/            # openalex, crossref, core_enricher
+│   │   ├── indexing/               # elasticsearch_indexer, pinecone_indexer, pinecone_text
+│   │   ├── search/                 # keyword, semantic, pinecone_search, rrf, hybrid
 │   │   ├── recommendations/        # content, citation, collaborative, engine
 │   │   └── knowledge_graph/        # MongoDB aggregation queries
 │   └── workers/
 │       ├── celery_app.py
-│       └── tasks.py                # index_paper_task, ingest_arxiv_task
+│       └── tasks.py                # index_paper_task, ingest_openalex_task, ingest_doi_task
 ├── scripts/setup_es_index.py
 ├── tests/
 └── .env.example
@@ -194,7 +187,7 @@ cp .env.example .env            # fill PINECONE_API_KEY when ready
 
 # 2. Start MongoDB, Redis, and Elasticsearch locally (see .env.example for URLs)
 
-# 3. Create Elasticsearch index (Phase 2)
+# 3. Create Elasticsearch index
 python -m scripts.setup_es_index
 
 # 4. Run API
@@ -206,7 +199,7 @@ celery -A app.workers.celery_app worker --loglevel=info
 
 API docs: http://localhost:8000/docs
 
-## API (Phase 1+)
+## API
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -214,25 +207,21 @@ API docs: http://localhost:8000/docs
 | GET | `/api/v1/papers/{id}` | Paper detail + recommendations |
 | GET | `/api/v1/papers/{id}/related` | Blended recommendations |
 | POST | `/api/v1/papers` | Ingest paper (async Celery) |
-| POST | `/api/v1/papers/import/arxiv` | Bulk arXiv import |
+| POST | `/api/v1/papers/import/openalex` | Bulk OpenAlex search import |
+| POST | `/api/v1/papers/import/doi` | Ingest one paper by DOI (Crossref) |
+| POST | `/api/v1/papers/import/{source}` | Generic import (`openalex`, `crossref`) |
+| POST | `/api/v1/papers/import/doi/sync` | Synchronous DOI ingest (dev/testing) |
 | GET | `/api/v1/authors/{name}/papers` | Author paper list |
 | GET | `/api/v1/explore/topics?tag=llm` | Topic clusters |
-
-## Build phases
-
-1. **Foundations** — MongoDB schema + arXiv ingestion (`ingestion/`, `workers/`)
-2. **Search** — Elasticsearch BM25, then Pinecone + hybrid RRF (`search/`)
-3. **Recommendations** — Content → citation graph → collaborative (`recommendations/`)
-4. **Knowledge graph + UI** — Aggregation queries + frontend graph (`knowledge_graph/`)
 
 ## Tech choices (defaults)
 
 | Component | Default |
 |-----------|---------|
-| Embeddings | `all-MiniLM-L6-v2` (local) |
+| Pinecone embed | Index-configured hosted model (server-side) |
 | Queue | Celery + Redis |
 | API | FastAPI |
-| Vector DB | Pinecone namespace `papers-abstract` (one vector per paper) |
+| Vector DB | Pinecone namespace `papers-abstract` (text records + server embed) |
 
 ## License
 

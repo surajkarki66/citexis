@@ -20,18 +20,19 @@ class Settings(BaseSettings):
     pinecone_api_key: str = ""
     pinecone_index: str = "citexis-papers"
     pinecone_namespace: str = "papers-abstract"
+    # Record field mapped to the index embed model (e.g. text or chunk_text — match field_map)
+    pinecone_text_field: str = "text"
+    pinecone_rerank_enabled: bool = True
+    pinecone_rerank_model: str = "bge-reranker-v2-m3"
 
-    embedding_model: str = "all-MiniLM-L6-v2"
-
-    reranker_provider: str = "none"  # none | cohere | local
-    cohere_api_key: str = ""
-
-    arxiv_max_results: int = 100
+    core_api_key: str = ""
+    ingestion_enrich_core: bool = True
+    ingestion_max_citations: int = 100
 
     # Hybrid search defaults
     search_top_k_per_source: int = 50
     search_rrf_k: int = 60
-    search_rerank_top_n: int = 20
+    search_fusion_top_n: int = 20
     search_final_top_n: int = 10
 
 
