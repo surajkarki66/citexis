@@ -139,6 +139,11 @@ paper_id
 
 ```
 citexis/
+├── frontend/                       # React UI (Vite + TypeScript + Tailwind)
+│   └── src/
+│       ├── api/client.ts           # API client
+│       ├── components/             # Layout, SearchBar, PaperCard, …
+│       └── pages/                  # Home, Paper, Explore, Author
 ├── app/
 │   ├── main.py                     # FastAPI app + lifespan (wire / teardown)
 │   ├── config.py                   # Settings from .env
@@ -198,6 +203,20 @@ celery -A app.workers.celery_app worker --loglevel=info
 ```
 
 API docs: http://localhost:8000/docs
+
+## Frontend
+
+React UI lives in `frontend/` (Vite + TypeScript + Tailwind).
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173 — API calls are proxied to the backend.
+
+See [frontend/README.md](frontend/README.md) for details.
 
 ## API
 
