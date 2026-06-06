@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.constants import EmbeddingStatus, RecommendationReason
 
@@ -38,7 +38,7 @@ class PaperInDB(PaperBase):
     es_id: str | None = None
     download_count: int = 0
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True, ser_json_by_alias=False)
 
 
 class PaperSummary(BaseModel):
