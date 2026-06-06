@@ -5,6 +5,14 @@ from app.config import Settings
 from app.core.schemas.search import SearchFilters
 
 SEARCH_RETURN_FIELDS = ("title", "paper_id", "year", "venue")
+# Rerank models (e.g. bge-reranker-v2-m3) cap query+document pairs at 1024 tokens.
+MAX_RERANK_QUERY_CHARS = 4_000
+
+
+def _prepare_query(query: str, rerank_enabled: bool) -> str:
+    if not rerank_enabled or len(query) <= MAX_RERANK_QUERY_CHARS:
+        return query
+    return query[:MAX_RERANK_QUERY_CHARS]
 
 
 def _hit_id(hit: Any) -> str:
@@ -51,6 +59,8 @@ def search_index_sync(
     """Search + rerank in one Pinecone call."""
     text_field = settings.pinecone_text_field
     fields = [text_field, *SEARCH_RETURN_FIELDS]
+    rerank_enabled = settings.pinecone_rerank_enabled
+    query = _prepare_query(query, rerank_enabled)
 
     kwargs: dict[str, Any] = {
         "inputs": {"text": query},
@@ -63,11 +73,12 @@ def search_index_sync(
     if pinecone_filter:
         kwargs["filter"] = pinecone_filter
 
-    if settings.pinecone_rerank_enabled:
+    if rerank_enabled:
         kwargs["rerank"] = {
             "model": settings.pinecone_rerank_model,
             "top_n": top_k,
             "rank_fields": [text_field],
+            "parameters": {"truncate": "END"},
         }
 
     response = index.search(**kwargs)
