@@ -72,3 +72,29 @@ export interface AuthorPaper {
   year: number | null;
   venue: string | null;
 }
+
+export interface ImportResult {
+  status: string;
+  imported: number;
+  skipped: number;
+  failed: number;
+  paper_ids: string[];
+  skipped_items: string[];
+  failed_items: string[];
+  failed_reasons: string[];
+}
+
+export interface RecommendationResponse {
+  paper_id: string;
+  items: PaperRecommendation[];
+}
+
+export interface ManualPaperInput {
+  title: string;
+  authors: string;
+  abstract: string;
+  doi: string;
+  year: string;
+  venue: string;
+  tags: string;
+}
