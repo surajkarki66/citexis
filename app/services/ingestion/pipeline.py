@@ -121,7 +121,6 @@ class IngestionPipeline:
         if not doc:
             return False
 
-        # Remove index copies first to avoid leaving orphaned search entries.
         await self._pinecone.delete_paper(paper_id)
         await self._es.delete_paper(paper_id)
         return await self._papers.delete_by_id(paper_id)

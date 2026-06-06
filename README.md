@@ -184,6 +184,9 @@ citexis/
 │   ├── reindex_elasticsearch.py    # Mongo → ES backfill
 │   ├── reindex_pinecone.py         # Mongo ↔ Pinecone audit + backfill
 │   └── cleanup_orphan_indexes.py   # Remove ES/Pinecone rows with no Mongo doc
+├── ruff.toml                       # Ruff lint/format configuration
+├── .pre-commit-config.yaml         # Git hooks (Ruff + file hygiene)
+├── requirements-dev.txt            # ruff, pre-commit
 ├── tests/
 └── .env.example
 ```
@@ -192,7 +195,7 @@ citexis/
 
 ### Option A — Docker (recommended)
 
-MongoDB and Pinecone stay **external** (your host MongoDB or Atlas + Pinecone API key).  
+MongoDB and Pinecone stay **external** (your host MongoDB or Atlas + Pinecone API key).
 Redis and Elasticsearch run in Docker.
 
 ```bash
@@ -214,7 +217,7 @@ docker compose up --build
 | http://localhost:9200 | Elasticsearch |
 | localhost:6380 (default) | Redis (host port; see `REDIS_HOST_PORT` in `.env`) |
 
-If port **6380** is also in use, set `REDIS_HOST_PORT=6381` (or any free port) in `.env`.  
+If port **6380** is also in use, set `REDIS_HOST_PORT=6381` (or any free port) in `.env`.
 Inside Docker, api/worker always use `redis://redis:6379/0` — only the **host mapping** changes.
 
 **Infra only** (run API/frontend on the host):
@@ -264,6 +267,23 @@ cd frontend && npm install && npm run dev
 ```
 
 API docs: http://localhost:8000/docs
+
+### Code quality (Ruff + pre-commit)
+
+Same setup as the bundled `dSTORMQuant` reference project. Configuration lives in `ruff.toml`.
+
+```bash
+pip install -r requirements-dev.txt
+# or: pip install -e ".[dev]"
+
+ruff check .
+ruff check . --fix
+
+pre-commit install
+pre-commit run --all-files
+```
+
+CI runs `ruff check .` on every push/PR (`.github/workflows/ci.yml`).
 
 ## Frontend
 

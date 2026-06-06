@@ -47,7 +47,6 @@ class PaperRepository:
         try:
             return await self.create(paper)
         except DuplicateKeyError:
-            # Concurrent ingest raced past the find_by_doi check
             return None
 
     async def get_by_id(self, paper_id: str) -> dict | None:

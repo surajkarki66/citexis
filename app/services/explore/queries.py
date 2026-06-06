@@ -12,7 +12,6 @@ class ExploreService:
         paper = await self._col.find_one({"_id": ObjectId(paper_id)})
         if not paper:
             return []
-        # Return outgoing citation DOIs stored on the seed paper.
         return list(paper.get("citations", []))
 
     async def get_author_papers(self, author_name: str, limit: int = 50) -> list[dict]:

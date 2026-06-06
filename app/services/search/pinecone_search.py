@@ -5,7 +5,6 @@ from app.config import Settings
 from app.core.schemas.search import SearchFilters
 
 SEARCH_RETURN_FIELDS = ("title", "paper_id", "year", "venue")
-# Rerank models (e.g. bge-reranker-v2-m3) cap query+document pairs at 1024 tokens.
 MAX_RERANK_QUERY_CHARS = 4_000
 
 
