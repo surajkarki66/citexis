@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { recordPaperClick } from "../lib/interactions";
 import type { PaperSummary } from "../types";
 
 interface PaperCardProps {
@@ -6,9 +7,16 @@ interface PaperCardProps {
   rank?: number;
   score?: number;
   reasonLabel?: string;
+  trackClick?: boolean;
 }
 
-export default function PaperCard({ paper, rank, score, reasonLabel }: PaperCardProps) {
+export default function PaperCard({
+  paper,
+  rank,
+  score,
+  reasonLabel,
+  trackClick = true,
+}: PaperCardProps) {
   const rankTitle =
     score !== undefined
       ? `Rank ${rank}. Internal fusion score: ${score.toFixed(4)}.`
@@ -19,7 +27,13 @@ export default function PaperCard({ paper, rank, score, reasonLabel }: PaperCard
   return (
     <article className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-brand-200 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
-        <Link to={`/papers/${paper.id}`} className="min-w-0 flex-1">
+        <Link
+          to={`/papers/${paper.id}`}
+          className="min-w-0 flex-1"
+          onClick={() => {
+            if (trackClick) recordPaperClick(paper.id);
+          }}
+        >
           <h3 className="font-serif text-lg leading-snug text-slate-900 group-hover:text-brand-700 transition-colors line-clamp-2">
             {paper.title}
           </h3>
