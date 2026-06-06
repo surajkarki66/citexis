@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep
+from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep, SettingsDep
 from app.core.schemas.paper import PaperCreate, PaperResponse
 from app.core.schemas.recommendation import RecommendationResponse
 from app.workers.tasks import (
@@ -49,6 +49,52 @@ async def ingest_paper(body: PaperCreate) -> dict:
     return {"status": "accepted", "task_id": task.id}
 
 
+@router.post("/sync", response_model=dict)
+async def ingest_paper_sync(
+    body: PaperCreate,
+    pipeline: IngestionDep,
+    enrich: bool = True,
+) -> dict:
+    """Synchronous manual ingest (blocks until MongoDB + indexes complete)."""
+    label = body.doi or body.title
+    try:
+        paper_id = await pipeline.ingest_one(body, enrich=enrich)
+    except Exception as exc:
+        return {
+            "status": "completed",
+            "imported": 0,
+            "skipped": 0,
+            "failed": 1,
+            "paper_ids": [],
+            "skipped_items": [],
+            "failed_items": [label],
+            "failed_reasons": [f"{label}: {exc.__class__.__name__}: {exc}"],
+        }
+
+    if paper_id:
+        return {
+            "status": "completed",
+            "imported": 1,
+            "skipped": 0,
+            "failed": 0,
+            "paper_ids": [paper_id],
+            "skipped_items": [],
+            "failed_items": [],
+            "failed_reasons": [],
+        }
+
+    return {
+        "status": "completed",
+        "imported": 0,
+        "skipped": 1,
+        "failed": 0,
+        "paper_ids": [],
+        "skipped_items": [label],
+        "failed_items": [],
+        "failed_reasons": [],
+    }
+
+
 @router.post("/import/openalex", status_code=status.HTTP_202_ACCEPTED)
 async def import_openalex(
     query: str = "machine learning",
@@ -93,4 +139,21 @@ async def import_doi_sync(
 
     source = CrossrefDoiSource()
     result = await pipeline.ingest_from_source(source, doi, 1, enrich=enrich)
+    return {"status": "completed", **result}
+
+
+@router.post("/import/openalex/sync", response_model=dict)
+async def import_openalex_sync(
+    settings: SettingsDep,
+    pipeline: IngestionDep,
+    query: str = "machine learning",
+    limit: int = 10,
+    enrich: bool = True,
+) -> dict:
+    """Synchronous OpenAlex search ingest (blocks until MongoDB + indexes complete)."""
+    from app.services.ingestion.sources.openalex import OpenAlexSource
+
+    limit = max(1, min(limit, 50))
+    source = OpenAlexSource(settings)
+    result = await pipeline.ingest_from_source(source, query, limit, enrich=enrich)
     return {"status": "completed", **result}
