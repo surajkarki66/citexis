@@ -3,6 +3,8 @@ import { Link, useLocation } from "react-router-dom";
 const nav = [
   { to: "/", label: "Search" },
   { to: "/explore", label: "Explore" },
+  { to: "/saved", label: "Saved" },
+  { to: "/import", label: "Import" },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -26,7 +28,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 key={to}
                 to={to}
                 className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors ${
-                  pathname === to
+                  pathname === to || (to !== "/" && pathname.startsWith(`${to}/`))
                     ? "bg-brand-50 text-brand-700"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 }`}
