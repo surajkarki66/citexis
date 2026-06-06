@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { getCitationDois, getPaper, getSavedPaperIds, recordInteraction, unsavePaper } from "../api/client";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  deletePaper,
+  getCitationDois,
+  getPaper,
+  getSavedPaperIds,
+  recordInteraction,
+  unsavePaper,
+} from "../api/client";
 import EmptyState from "../components/EmptyState";
 import PaperCard from "../components/PaperCard";
+import PaperRating from "../components/PaperRating";
 import { getUserId } from "../lib/userId";
 import type { Paper } from "../types";
 
@@ -14,6 +22,7 @@ const REASON_LABELS: Record<string, string> = {
 
 export default function PaperPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [paper, setPaper] = useState<Paper | null>(null);
   const [citations, setCitations] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +30,8 @@ export default function PaperPage() {
   const [saved, setSaved] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -62,6 +73,28 @@ export default function PaperPage() {
       setSaveError(err instanceof Error ? err.message : "Failed to update save");
     } finally {
       setSaveBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!id || deleteBusy) return;
+    if (
+      !window.confirm(
+        "Delete this paper from MongoDB, Elasticsearch, and Pinecone? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deletePaper(id);
+      navigate("/");
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete paper");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -144,6 +177,30 @@ export default function PaperPage() {
             {saved ? "Saved" : "Save paper"}
           </button>
           {saveError && <span className="text-xs text-red-600">{saveError}</span>}
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleteBusy}
+            className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+          >
+            Delete paper
+          </button>
+          {deleteError && <span className="text-xs text-red-600">{deleteError}</span>}
+        </div>
+
+        <div className="mt-3">
+          {id && <PaperRating paperId={id} userId={getUserId()} />}
+        </div>
+
+        {id && (
+          <div className="mt-3">
+            <Link to={`/papers/${id}/related`} className="text-sm text-brand-600 hover:underline">
+              View all related papers →
+            </Link>
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
           <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
             {paper.cited_by_count.toLocaleString()} citations
           </span>
@@ -212,7 +269,17 @@ export default function PaperPage() {
 
       {paper.recommendations.length > 0 && (
         <section className="mt-12">
-          <h2 className="font-serif text-2xl text-slate-900">Related papers</h2>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 className="font-serif text-2xl text-slate-900">Related papers</h2>
+            {id && (
+              <Link
+                to={`/papers/${id}/related`}
+                className="text-sm text-brand-600 hover:underline"
+              >
+                View all related →
+              </Link>
+            )}
+          </div>
           <div className="mt-4 space-y-4">
             {paper.recommendations.map((rec, index) => (
               <PaperCard
