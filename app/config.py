@@ -4,36 +4,36 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """All values must be set in `.env`."""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_env: str = "development"
-    debug: bool = True
+    app_env: str
+    debug: bool
 
-    mongodb_uri: str = "mongodb://localhost:27017"
-    mongodb_db: str = "citexis"
+    mongodb_uri: str
+    mongodb_db: str
 
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str
 
-    elasticsearch_url: str = "http://localhost:9200"
-    elasticsearch_index: str = "papers"
+    elasticsearch_url: str
+    elasticsearch_index: str
 
-    pinecone_api_key: str = ""
-    pinecone_index: str = "citexis-papers"
-    pinecone_namespace: str = "papers-abstract"
-    # Record field mapped to the index embed model (e.g. text or chunk_text — match field_map)
-    pinecone_text_field: str = "text"
-    pinecone_rerank_enabled: bool = True
-    pinecone_rerank_model: str = "bge-reranker-v2-m3"
+    pinecone_api_key: str
+    pinecone_index: str
+    pinecone_namespace: str
+    pinecone_text_field: str
+    pinecone_rerank_enabled: bool
+    pinecone_rerank_model: str
 
-    core_api_key: str = ""
-    ingestion_enrich_core: bool = True
-    ingestion_max_citations: int = 100
+    core_api_key: str
+    ingestion_enrich_core: bool
+    ingestion_max_citations: int
 
-    # Hybrid search defaults
-    search_top_k_per_source: int = 50
-    search_rrf_k: int = 60
-    search_fusion_top_n: int = 20
-    search_final_top_n: int = 10
+    search_top_k_per_source: int
+    search_rrf_k: int
+    search_fusion_top_n: int
+    search_final_top_n: int
 
 
 @lru_cache
