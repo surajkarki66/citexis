@@ -22,8 +22,34 @@ class UserInteractionRepository:
             if existing:
                 return str(existing["_id"])
 
+        if interaction.interaction_type == InteractionType.RATING:
+            existing = await self._col.find_one(
+                {
+                    "user_id": interaction.user_id,
+                    "paper_id": interaction.paper_id,
+                    "interaction_type": InteractionType.RATING,
+                }
+            )
+            payload = interaction.model_dump()
+            if existing:
+                await self._col.update_one({"_id": existing["_id"]}, {"$set": payload})
+                return str(existing["_id"])
+
         result = await self._col.insert_one(interaction.model_dump())
         return str(result.inserted_id)
+
+    async def get_rating(self, user_id: str, paper_id: str) -> float | None:
+        doc = await self._col.find_one(
+            {
+                "user_id": user_id,
+                "paper_id": paper_id,
+                "interaction_type": InteractionType.RATING,
+            }
+        )
+        if not doc:
+            return None
+        rating = doc.get("rating")
+        return float(rating) if rating is not None else None
 
     async def get_saved_paper_ids(self, user_id: str) -> list[str]:
         cursor = self._col.find(

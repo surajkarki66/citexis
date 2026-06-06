@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import PaperRepoDep, UserRepoDep
+from app.core.constants import InteractionType
 from app.core.schemas.user import UserInteractionCreate
 
 router = APIRouter()
@@ -12,10 +13,21 @@ async def record_interaction(
     papers: PaperRepoDep,
     users: UserRepoDep,
 ) -> dict:
+    if body.interaction_type == InteractionType.RATING and body.rating is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="rating is required when interaction_type is rating",
+        )
     if not await papers.get_by_id(body.paper_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
     interaction_id = await users.record(body)
     return {"id": interaction_id, "status": "recorded"}
+
+
+@router.get("/users/{user_id}/papers/{paper_id}/rating")
+async def get_paper_rating(user_id: str, paper_id: str, users: UserRepoDep) -> dict:
+    rating = await users.get_rating(user_id, paper_id)
+    return {"user_id": user_id, "paper_id": paper_id, "rating": rating}
 
 
 @router.get("/users/{user_id}/saved")
