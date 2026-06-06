@@ -10,7 +10,7 @@ from app.repositories.user_repository import UserInteractionRepository
 from app.services.ingestion.pipeline import IngestionPipeline
 from app.services.indexing.elasticsearch_indexer import ElasticsearchIndexer
 from app.services.indexing.pinecone_indexer import PineconeIndexer
-from app.services.knowledge_graph.queries import KnowledgeGraphService
+from app.services.explore.queries import ExploreService
 from app.services.recommendations.engine import RecommendationEngine
 from app.services.search.hybrid import HybridSearchService
 from app.services.search.keyword import KeywordSearchService
@@ -37,8 +37,8 @@ def get_recommendations(request: Request) -> RecommendationEngine:
     return request.app.state.recommendations
 
 
-def get_knowledge_graph(request: Request) -> KnowledgeGraphService:
-    return request.app.state.knowledge_graph
+def get_explore(request: Request) -> ExploreService:
+    return request.app.state.explore
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -47,7 +47,7 @@ UserRepoDep = Annotated[UserInteractionRepository, Depends(get_user_repo)]
 IngestionDep = Annotated[IngestionPipeline, Depends(get_ingestion_pipeline)]
 SearchDep = Annotated[HybridSearchService, Depends(get_hybrid_search)]
 RecommendationsDep = Annotated[RecommendationEngine, Depends(get_recommendations)]
-KnowledgeGraphDep = Annotated[KnowledgeGraphService, Depends(get_knowledge_graph)]
+ExploreDep = Annotated[ExploreService, Depends(get_explore)]
 
 
 def wire_app_state(app) -> None:
@@ -73,4 +73,4 @@ def wire_app_state(app) -> None:
         SemanticSearchService(settings),
     )
     app.state.recommendations = RecommendationEngine(settings, db, paper_repo, user_repo)
-    app.state.knowledge_graph = KnowledgeGraphService(db)
+    app.state.explore = ExploreService(db)

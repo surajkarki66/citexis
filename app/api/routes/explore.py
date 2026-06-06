@@ -1,16 +1,16 @@
 from fastapi import APIRouter, Query
 
-from app.api.deps import KnowledgeGraphDep
+from app.api.deps import ExploreDep
 
 router = APIRouter()
 
 
 @router.get("/topics")
 async def explore_topics(
-    kg: KnowledgeGraphDep,
+    explore: ExploreDep,
     tag: str = Query(..., description="Topic tag, e.g. rl, nlp, llm"),
 ) -> list[dict]:
-    clusters = await kg.get_topic_clusters(tag)
+    clusters = await explore.get_topic_clusters(tag)
     return [
         {
             "venue": c["_id"],
@@ -24,6 +24,6 @@ async def explore_topics(
 @router.get("/papers/{paper_id}/neighbors")
 async def citation_neighbors(
     paper_id: str,
-    kg: KnowledgeGraphDep,
+    explore: ExploreDep,
 ) -> list[str]:
-    return await kg.get_citation_neighbors(paper_id)
+    return await explore.get_citation_neighbors(paper_id)

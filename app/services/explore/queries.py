@@ -2,8 +2,8 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 
-class KnowledgeGraphService:
-    """Citation / author relationship queries via MongoDB aggregation."""
+class ExploreService:
+    """MongoDB-backed browse queries for /explore and /authors."""
 
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
         self._col = db["papers"]
@@ -12,7 +12,7 @@ class KnowledgeGraphService:
         paper = await self._col.find_one({"_id": ObjectId(paper_id)})
         if not paper:
             return []
-        # Return raw citation DOI edges directly from the seed paper.
+        # Return outgoing citation DOIs stored on the seed paper.
         return list(paper.get("citations", []))
 
     async def get_author_papers(self, author_name: str, limit: int = 50) -> list[dict]:
@@ -24,7 +24,7 @@ class KnowledgeGraphService:
         return await cursor.to_list(length=limit)
 
     async def get_topic_clusters(self, tag: str, limit: int = 20) -> list[dict]:
-        """Simple tag-based cluster for /explore/topics."""
+        """Group papers with a shared tag by venue."""
         pipeline = [
             {"$match": {"tags": tag}},
             {"$group": {"_id": "$venue", "count": {"$sum": 1}, "papers": {"$push": "$$ROOT"}}},

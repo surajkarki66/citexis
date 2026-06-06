@@ -1,12 +1,12 @@
 from fastapi import APIRouter
 
-from app.api.deps import KnowledgeGraphDep
+from app.api.deps import ExploreDep
 router = APIRouter()
 
 
 @router.get("/{author_name}/papers")
-async def author_papers(author_name: str, kg: KnowledgeGraphDep) -> list[dict]:
-    docs = await kg.get_author_papers(author_name)
+async def author_papers(author_name: str, explore: ExploreDep) -> list[dict]:
+    docs = await explore.get_author_papers(author_name)
     return [
         {
             "id": str(d["_id"]),
