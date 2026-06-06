@@ -39,7 +39,7 @@ PAPERS_INDEX_MAPPING = {
 def get_elasticsearch(settings: Settings) -> AsyncElasticsearch:
     global _client
     if _client is None:
-        _client = AsyncElasticsearch(settings.elasticsearch_url)
+        _client = AsyncElasticsearch(settings.elasticsearch_url, request_timeout=30)
     return _client
 
 
