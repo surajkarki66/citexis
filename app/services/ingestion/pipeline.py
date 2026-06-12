@@ -61,6 +61,47 @@ class IngestionPipeline:
         source = get_paper_source(source_name, self._settings)
         return await self.ingest_from_source(source, query, limit, enrich=enrich)
 
+    async def ingest_from_pdfs(
+        self,
+        files: list[tuple[str, bytes]],
+        *,
+        enrich: bool = True,
+    ) -> dict:
+        from app.services.ingestion.pdf_extractor import extract_paper_from_pdf
+
+        imported: list[str] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+        failed_reasons: list[str] = []
+
+        for filename, data in files:
+            label = filename
+            try:
+                paper = extract_paper_from_pdf(
+                    data,
+                    filename,
+                    abstract_max_chars=self._settings.pdf_import_abstract_max_chars,
+                )
+                label = paper.doi or paper.title
+                paper_id = await self.ingest_one(paper, enrich=enrich)
+                if paper_id:
+                    imported.append(paper_id)
+                else:
+                    skipped.append(label)
+            except Exception as exc:
+                failed.append(label)
+                failed_reasons.append(f"{label}: {exc.__class__.__name__}: {exc}")
+
+        return {
+            "imported": len(imported),
+            "skipped": len(skipped),
+            "failed": len(failed),
+            "paper_ids": imported,
+            "skipped_items": skipped,
+            "failed_items": failed,
+            "failed_reasons": failed_reasons,
+        }
+
     async def ingest_many(
         self,
         papers: list[PaperCreate],

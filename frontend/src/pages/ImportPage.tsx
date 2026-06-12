@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { importDoiSync, importOpenAlexSync, importPaperSync } from "../api/client";
+import { importDoiSync, importOpenAlexSync, importPaperSync, importPdfsSync } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import { mergeImportResults, parseDoiList } from "../lib/import";
 import type { ImportResult, ManualPaperInput } from "../types";
@@ -91,6 +91,7 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [manualPaper, setManualPaper] = useState<ManualPaperInput>(EMPTY_MANUAL_PAPER);
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
 
   async function handleDoiImport(e: React.FormEvent) {
     e.preventDefault();
@@ -145,6 +146,32 @@ export default function ImportPage() {
     }
   }
 
+  async function handlePdfImport(e: React.FormEvent) {
+    e.preventDefault();
+    if (pdfFiles.length === 0) {
+      setError("Select at least one PDF file.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setProgress(`Extracting and indexing ${pdfFiles.length} PDF(s)…`);
+
+    try {
+      const data = await importPdfsSync(pdfFiles, enrich);
+      setResult(data);
+      if (data.imported > 0) {
+        setPdfFiles([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "PDF import failed");
+    } finally {
+      setProgress(null);
+      setLoading(false);
+    }
+  }
+
   async function handleManualIngest(e: React.FormEvent) {
     e.preventDefault();
     if (!manualPaper.title.trim()) {
@@ -179,8 +206,8 @@ export default function ImportPage() {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <h1 className="font-serif text-3xl text-brand-900">Import papers</h1>
       <p className="mt-3 max-w-2xl text-muted">
-        Add papers by DOI, OpenAlex search, or manual entry. Imports run synchronously and
-        index immediately.
+        Add papers by DOI, OpenAlex search, PDF upload, or manual entry. Imports run
+        synchronously and index immediately.
       </p>
 
       <label className="mt-6 flex items-center gap-2 text-sm text-slate-700">
@@ -277,6 +304,36 @@ export default function ImportPage() {
           </form>
         </section>
       </div>
+
+      <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="font-serif text-xl text-slate-900">Import from PDF</h2>
+        <p className="mt-2 text-sm text-muted">
+          Upload one or more text-based PDFs. Title, authors, abstract, DOI, and year are
+          extracted automatically. Scanned/image-only PDFs are not supported.
+        </p>
+        <form onSubmit={handlePdfImport} className="mt-4 space-y-4">
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            onChange={(e) => setPdfFiles(Array.from(e.target.files ?? []))}
+            className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
+          />
+          {pdfFiles.length > 0 && (
+            <p className="text-sm text-slate-600">
+              {pdfFiles.length} file{pdfFiles.length === 1 ? "" : "s"} selected:{" "}
+              {pdfFiles.map((file) => file.name).join(", ")}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={loading || pdfFiles.length === 0}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            Import PDFs
+          </button>
+        </form>
+      </section>
 
       <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="font-serif text-xl text-slate-900">Manual paper ingest</h2>

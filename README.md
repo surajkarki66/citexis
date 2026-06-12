@@ -296,7 +296,7 @@ React UI in `frontend/` (Vite + TypeScript + Tailwind). Nav: **Search**, **Explo
 | `/papers/:id/related` | Full related-papers list | `GET /papers/{id}/related` |
 | `/explore?tag=…` | Topic clusters by venue | `GET /explore/topics` |
 | `/saved` | Saved papers list, unsave | `GET /interactions/users/{id}/saved`, `DELETE …/saved/{paper_id}` |
-| `/import` | Sync DOI import, OpenAlex import, manual paper form | `POST /papers/import/doi/sync`, `POST /papers/import/openalex/sync`, `POST /papers/sync` |
+| `/import` | Sync DOI, OpenAlex, PDF upload, manual paper form | `POST /papers/import/doi/sync`, `POST /papers/import/openalex/sync`, `POST /papers/import/pdf/sync`, `POST /papers/sync` |
 | `/authors/:name` | Papers by author; click tracking | `GET /authors/{name}/papers`, `POST /interactions` (click) |
 
 User identity is a browser-local ID (`localStorage`) used for saves, ratings, and interaction history.
@@ -338,6 +338,7 @@ Base path: `/api/v1`. Interactive docs: http://localhost:8000/docs
 | POST | `/papers/sync` | Manual paper ingest (blocks until indexed) | Import page |
 | POST | `/papers/import/doi/sync` | DOI ingest via Crossref | Import page |
 | POST | `/papers/import/openalex/sync` | OpenAlex search import | Import page |
+| POST | `/papers/import/pdf/sync` | PDF upload — extract text/metadata and index | Import page |
 
 ### Import (async — Celery, API/scripts only)
 

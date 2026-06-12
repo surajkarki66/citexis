@@ -42,7 +42,7 @@ When the frontend runs inside Docker, `VITE_PROXY_TARGET=http://api:8000` is set
 | `/papers/:id/related` | Full related-papers list |
 | `/explore?tag=…` | Topic clusters grouped by venue |
 | `/saved` | Saved papers (browser-local user ID) |
-| `/import` | Sync import: DOI, OpenAlex search, manual paper form |
+| `/import` | Sync import: DOI, OpenAlex search, PDF upload, manual paper form |
 | `/authors/:name` | Papers by author name |
 
 All imports run synchronously — the UI waits for MongoDB + Elasticsearch + Pinecone indexing to finish.
