@@ -1,3 +1,5 @@
+import re
+
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -22,11 +24,24 @@ class ExploreService:
         )
         return await cursor.to_list(length=limit)
 
-    async def get_topic_clusters(self, tag: str, limit: int = 20) -> list[dict]:
-        """Group papers with a shared tag by venue."""
+    async def get_tag_clusters(self, query: str, limit: int = 20) -> list[dict]:
+        """Group papers whose tags match the query, clustered by tag."""
+        pattern = re.escape(query.strip())
+        if not pattern:
+            return []
+
+        tag_match = {"$regex": pattern, "$options": "i"}
         pipeline = [
-            {"$match": {"tags": tag}},
-            {"$group": {"_id": "$venue", "count": {"$sum": 1}, "papers": {"$push": "$$ROOT"}}},
+            {"$match": {"tags": tag_match}},
+            {"$unwind": "$tags"},
+            {"$match": {"tags": tag_match}},
+            {
+                "$group": {
+                    "_id": "$tags",
+                    "count": {"$sum": 1},
+                    "papers": {"$push": "$$ROOT"},
+                },
+            },
             {"$sort": {"count": -1}},
             {"$limit": limit},
         ]

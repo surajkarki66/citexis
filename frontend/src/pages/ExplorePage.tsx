@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getTopicClusters } from "../api/client";
 import EmptyState from "../components/EmptyState";
+import { recordPaperClick } from "../lib/interactions";
 import type { TopicCluster } from "../types";
 
 const POPULAR_TAGS = [
@@ -39,7 +40,7 @@ export default function ExplorePage() {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <h1 className="font-serif text-3xl text-brand-900">Explore topics</h1>
       <p className="mt-2 text-muted">
-        Browse paper clusters grouped by venue for a given topic tag
+        Find papers by similar tags and browse them grouped by tag
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 flex gap-2">
@@ -47,7 +48,7 @@ export default function ExplorePage() {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Enter a topic tag…"
+          placeholder="Enter a topic, e.g. learning or vision…"
           className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-brand-400"
         />
         <button
@@ -92,7 +93,7 @@ export default function ExplorePage() {
         <div className="mt-8">
           <EmptyState
             title="No clusters found"
-            description={`No papers with tag "${tag}" in your corpus.`}
+            description={`No papers with tags matching "${tag}" in your corpus.`}
           />
         </div>
       )}
@@ -100,24 +101,30 @@ export default function ExplorePage() {
       {!loading && clusters.length > 0 && (
         <div className="mt-8 space-y-4">
           <p className="text-sm text-muted">
-            {clusters.length} venue{clusters.length !== 1 && "s"} for &ldquo;{tag}&rdquo;
+            {clusters.length} matching tag{clusters.length !== 1 && "s"} for &ldquo;{tag}&rdquo;
           </p>
           {clusters.map((c) => (
             <div
-              key={c.venue}
+              key={c.tag}
               className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
             >
               <div className="flex items-center justify-between">
-                <h3 className="font-medium text-slate-900">{c.venue || "Unknown venue"}</h3>
+                <h3 className="font-medium text-slate-900">{c.tag}</h3>
                 <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-700">
                   {c.count} papers
                 </span>
               </div>
-              {c.sample_titles.length > 0 && (
-                <ul className="mt-3 space-y-1 text-sm text-slate-600">
-                  {c.sample_titles.map((title) => (
-                    <li key={title} className="truncate">
-                      · {title}
+              {c.papers.length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm">
+                  {c.papers.map((paper) => (
+                    <li key={paper.id} className="truncate">
+                      <Link
+                        to={`/papers/${paper.id}`}
+                        onClick={() => recordPaperClick(paper.id)}
+                        className="text-slate-600 hover:text-brand-600 hover:underline"
+                      >
+                        · {paper.title}
+                      </Link>
                     </li>
                   ))}
                 </ul>

@@ -8,14 +8,17 @@ router = APIRouter()
 @router.get("/topics")
 async def explore_topics(
     explore: ExploreDep,
-    tag: str = Query(..., description="Topic tag, e.g. rl, nlp, llm"),
+    tag: str = Query(..., description="Topic search — matches similar tags in the corpus"),
 ) -> list[dict]:
-    clusters = await explore.get_topic_clusters(tag)
+    clusters = await explore.get_tag_clusters(tag)
     return [
         {
-            "venue": c["_id"],
+            "tag": c["_id"],
             "count": c["count"],
-            "sample_titles": [p.get("title") for p in c.get("papers", [])[:3]],
+            "papers": [
+                {"id": str(p["_id"]), "title": p.get("title")}
+                for p in c.get("papers", [])
+            ],
         }
         for c in clusters
     ]

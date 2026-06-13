@@ -60,10 +60,15 @@ export interface Paper {
   recommendations: PaperRecommendation[];
 }
 
+export interface TopicClusterPaper {
+  id: string;
+  title: string;
+}
+
 export interface TopicCluster {
-  venue: string;
+  tag: string;
   count: number;
-  sample_titles: string[];
+  papers: TopicClusterPaper[];
 }
 
 export interface AuthorPaper {
