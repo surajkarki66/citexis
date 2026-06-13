@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep, SettingsDep
 from app.core.schemas.paper import PaperCreate, PaperResponse
@@ -139,52 +139,6 @@ async def import_doi_sync(
 
     source = CrossrefDoiSource()
     result = await pipeline.ingest_from_source(source, doi, 1, enrich=enrich)
-    return {"status": "completed", **result}
-
-
-@router.post("/import/pdf/sync", response_model=dict)
-async def import_pdf_sync(
-    pipeline: IngestionDep,
-    settings: SettingsDep,
-    enrich: bool = True,
-    files: list[UploadFile] = File(...),
-) -> dict:
-    """Synchronous PDF ingest: extract text/metadata and index each file."""
-    if not files:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Upload at least one PDF file",
-        )
-    if len(files) > settings.pdf_import_max_files:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Maximum {settings.pdf_import_max_files} PDF files per request",
-        )
-
-    payloads: list[tuple[str, bytes]] = []
-    for upload in files:
-        filename = upload.filename or "upload.pdf"
-        if not filename.lower().endswith(".pdf"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Only PDF files are supported: {filename}",
-            )
-
-        data = await upload.read()
-        if not data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Empty file: {filename}",
-            )
-        if len(data) > settings.pdf_import_max_bytes:
-            max_mb = settings.pdf_import_max_bytes // (1024 * 1024)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File too large (max {max_mb} MB): {filename}",
-            )
-        payloads.append((filename, data))
-
-    result = await pipeline.ingest_from_pdfs(payloads, enrich=enrich)
     return {"status": "completed", **result}
 
 

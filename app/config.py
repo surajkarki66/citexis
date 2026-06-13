@@ -30,10 +30,6 @@ class Settings(BaseSettings):
     ingestion_enrich_core: bool
     ingestion_max_citations: int
 
-    pdf_import_max_files: int
-    pdf_import_max_bytes: int
-    pdf_import_abstract_max_chars: int
-
     search_top_k_per_source: int
     search_rrf_k: int
     search_fusion_top_n: int

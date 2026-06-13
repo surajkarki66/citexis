@@ -67,26 +67,6 @@ export function importOpenAlexSync(
   return request(`/papers/import/openalex/sync?${params}`, { method: "POST" });
 }
 
-export async function importPdfsSync(files: File[], enrich = true): Promise<ImportResult> {
-  const form = new FormData();
-  for (const file of files) {
-    form.append("files", file);
-  }
-
-  const params = new URLSearchParams({ enrich: String(enrich) });
-  const response = await fetch(`${API_BASE}/papers/import/pdf/sync?${params}`, {
-    method: "POST",
-    body: form,
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Request failed (${response.status})`);
-  }
-
-  return response.json() as Promise<ImportResult>;
-}
-
 export type InteractionType = "view" | "save" | "click" | "rating";
 
 export function recordInteraction(body: {
