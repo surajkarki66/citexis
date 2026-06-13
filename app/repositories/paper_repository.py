@@ -54,6 +54,9 @@ class PaperRepository:
             return None
         return await self._col.find_one({"_id": ObjectId(paper_id)})
 
+    async def count_all(self) -> int:
+        return await self._col.count_documents({})
+
     async def delete_by_id(self, paper_id: str) -> bool:
         if not ObjectId.is_valid(paper_id):
             return False

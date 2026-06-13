@@ -16,6 +16,13 @@ from app.workers.tasks import (
 router = APIRouter()
 
 
+@router.get("/stats")
+async def paper_stats(papers: PaperRepoDep) -> dict:
+    """Corpus size for the home page and dashboards."""
+    total = await papers.count_all()
+    return {"total_papers": total}
+
+
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper(
     paper_id: str,

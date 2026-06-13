@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { searchPapers } from "../api/client";
+import { useEffect, useState } from "react";
+import { getCorpusStats, searchPapers } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import FilterPanel from "../components/FilterPanel";
 import PaperCard from "../components/PaperCard";
@@ -19,6 +19,13 @@ export default function HomePage() {
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalPapers, setTotalPapers] = useState<number | null>(null);
+
+  useEffect(() => {
+    getCorpusStats()
+      .then((stats) => setTotalPapers(stats.total_papers))
+      .catch(() => setTotalPapers(null));
+  }, []);
 
   async function runSearch(q: string = query) {
     if (!q.trim()) return;
@@ -46,6 +53,11 @@ export default function HomePage() {
           <p className="mt-4 text-lg text-muted">
             Hybrid semantic + keyword search across your indexed corpus
           </p>
+          {totalPapers !== null && (
+            <p className="mt-3 text-sm font-medium text-brand-800">
+              {totalPapers.toLocaleString()} paper{totalPapers !== 1 && "s"} indexed
+            </p>
+          )}
           <div className="mt-8">
             <SearchBar
               value={query}

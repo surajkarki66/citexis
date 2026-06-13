@@ -30,6 +30,11 @@ export function searchPapers(body: SearchRequest): Promise<SearchResponse> {
     body: JSON.stringify(body),
   });
 }
+
+export function getCorpusStats(): Promise<{ total_papers: number }> {
+  return request("/papers/stats");
+}
+
 export function getPaper(id: string): Promise<Paper> {
   return request<Record<string, unknown>>(`/papers/${id}`).then((data) => ({
     ...(data as Paper),
