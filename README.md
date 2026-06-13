@@ -89,13 +89,22 @@ Startup wiring lives in `wire_app_state()` (`app/api/deps.py`): it builds reposi
 **Ingestion** (sync via UI/API, or async via Celery for scripts):
 
 ```
-Source (OpenAlex / Crossref DOI + optional CORE enrichment)
+Source (OpenAlex / Crossref DOI + optional CORE full-text URL enrichment)
     → normalizer          # app/services/ingestion/normalizer.py
-    → MongoDB create      # paper_repository
-    → Pinecone upsert_records  # server-side embed from text field
+    → MongoDB create      # paper_repository (dedup by DOI when present)
+    → Pinecone upsert_records  # embed title + abstract + tags (title-only if no abstract)
     → Elasticsearch index # elasticsearch_indexer
     → status = INDEXED    # embedding_status on paper doc
 ```
+
+Import paths:
+
+| Method | Source | Notes |
+|--------|--------|--------|
+| DOI sync | Crossref | Metadata + citations; OpenAlex abstract fallback when Crossref has none |
+| OpenAlex sync | OpenAlex | Search by query; tags from keywords/concepts |
+| Manual sync | User form | Full control over title, abstract, tags, venue |
+| arXiv search | arXiv API | **DOI extraction only** — search → list DOIs → import via Crossref |
 
 The **Import** page and sync API routes block until MongoDB + both indexes are updated. Async Celery endpoints remain available for bulk jobs outside the UI.
 
@@ -130,6 +139,7 @@ paper_id
 |------|------------|
 | New API endpoint | `app/api/routes/` + register in `routes/__init__.py`; add a dep in `deps.py` if you need a new service |
 | New paper source | `app/services/ingestion/sources/` (implement `base.py`), call from a route or Celery task |
+| arXiv DOI lookup | `app/services/ingestion/sources/arxiv.py` + `GET /papers/import/arxiv/search` |
 | Tune search | `app/config.py` (`search_*`, `pinecone_*`), `hybrid.py`, `rrf.py` |
 | New recommendation signal | `app/services/recommendations/` + register weight in `engine.py` |
 | Explore / browse queries | `app/services/explore/queries.py` |
@@ -159,7 +169,7 @@ citexis/
 │   │       └── explore.py          # Topic clusters, citation neighbors
 │   ├── core/
 │   │   ├── constants.py            # Enums (embedding status, etc.)
-│   │   └── schemas/                # paper, search, user, recommendation
+│   │   └── schemas/                # paper, search, user, recommendation, arxiv
 │   ├── db/
 │   │   ├── mongodb.py
 │   │   ├── elasticsearch.py
@@ -171,11 +181,11 @@ citexis/
 │   │   ├── ingestion/
 │   │   │   ├── pipeline.py         # ingest_one / index_paper
 │   │   │   ├── normalizer.py
-│   │   │   └── sources/            # openalex, crossref, core_enricher
+│   │   │   └── sources/            # openalex, crossref, arxiv, core_enricher
 │   │   ├── indexing/               # elasticsearch_indexer, pinecone_indexer, pinecone_text
 │   │   ├── search/                 # keyword, semantic, pinecone_search, rrf, hybrid
 │   │   ├── recommendations/        # content, citation, collaborative, engine
-│   │   └── explore/                # topic clusters, author lists, citation DOIs
+│   │   └── explore/                # tag clusters (MongoDB), author lists, citation DOIs
 │   └── workers/
 │       ├── celery_app.py
 │       └── tasks.py                # index_paper_task, ingest_openalex_task, ingest_doi_task
@@ -187,7 +197,6 @@ citexis/
 ├── ruff.toml                       # Ruff lint/format configuration
 ├── .pre-commit-config.yaml         # Git hooks (Ruff + file hygiene)
 ├── requirements-dev.txt            # ruff, pre-commit
-├── tests/
 └── .env.example
 ```
 
@@ -291,12 +300,12 @@ React UI in `frontend/` (Vite + TypeScript + Tailwind). Nav: **Search**, **Explo
 
 | Route | Features | API |
 |-------|----------|-----|
-| `/` | Hybrid search with filters; click tracking on results | `POST /search`, `POST /interactions` (click) |
+| `/` | Hybrid search with filters; indexed corpus count; click tracking on results | `GET /papers/stats`, `POST /search`, `POST /interactions` (click) |
 | `/papers/:id` | Detail, references, related preview, save/unsave, 1–5 rating, delete | `GET /papers/{id}`, `GET /explore/papers/{id}/neighbors`, `POST /interactions`, `DELETE /papers/{id}` |
 | `/papers/:id/related` | Full related-papers list | `GET /papers/{id}/related` |
-| `/explore?tag=…` | Topic clusters by venue | `GET /explore/topics` |
+| `/explore?tag=…` | Papers grouped by matching tags (MongoDB; partial tag match) | `GET /explore/topics` |
 | `/saved` | Saved papers list, unsave | `GET /interactions/users/{id}/saved`, `DELETE …/saved/{paper_id}` |
-| `/import` | Sync DOI, OpenAlex, manual paper form | `POST /papers/import/doi/sync`, `POST /papers/import/openalex/sync`, `POST /papers/sync` |
+| `/import` | DOI, OpenAlex, arXiv DOI extraction, manual ingest | `POST /papers/import/doi/sync`, `POST /papers/import/openalex/sync`, `GET /papers/import/arxiv/search`, `POST /papers/sync` |
 | `/authors/:name` | Papers by author; click tracking | `GET /authors/{name}/papers`, `POST /interactions` (click) |
 
 User identity is a browser-local ID (`localStorage`) used for saves, ratings, and interaction history.
@@ -323,12 +332,13 @@ Base path: `/api/v1`. Interactive docs: http://localhost:8000/docs
 
 | Method | Path | Description | UI |
 |--------|------|-------------|-----|
-| POST | `/search` | Hybrid search (ES + Pinecone + RRF) | Search page |
+| POST | `/search` | Hybrid search (ES + Pinecone + RRF) | Home page |
+| GET | `/papers/stats` | Total papers in MongoDB corpus | Home page |
 | GET | `/papers/{id}` | Paper detail + top recommendations | Paper page |
 | GET | `/papers/{id}/related` | Blended recommendations | Related page |
 | DELETE | `/papers/{id}` | Delete paper from MongoDB + ES + Pinecone | Paper page |
 | GET | `/authors/{name}/papers` | Author paper list | Author page |
-| GET | `/explore/topics?tag=…` | Topic clusters by venue | Explore page |
+| GET | `/explore/topics?tag=…` | Papers with similar tags, grouped by tag | Explore page |
 | GET | `/explore/papers/{id}/neighbors` | Citation DOI neighbors | Paper page (references) |
 
 ### Import (sync — used by UI)
@@ -336,8 +346,9 @@ Base path: `/api/v1`. Interactive docs: http://localhost:8000/docs
 | Method | Path | Description | UI |
 |--------|------|-------------|-----|
 | POST | `/papers/sync` | Manual paper ingest (blocks until indexed) | Import page |
-| POST | `/papers/import/doi/sync` | DOI ingest via Crossref | Import page |
+| POST | `/papers/import/doi/sync` | DOI ingest via Crossref (+ OpenAlex abstract fallback) | Import page |
 | POST | `/papers/import/openalex/sync` | OpenAlex search import | Import page |
+| GET | `/papers/import/arxiv/search` | Search arXiv and extract DOIs (no direct ingest) | Import page |
 
 ### Import (async — Celery, API/scripts only)
 
@@ -349,6 +360,17 @@ Base path: `/api/v1`. Interactive docs: http://localhost:8000/docs
 | POST | `/papers/import/{source}` | Generic import (`openalex`, `crossref`) |
 
 Requires the **worker** container (`celery -A app.workers.celery_app worker`).
+
+### Explore topics
+
+Explore uses **MongoDB only** (not Pinecone or Elasticsearch):
+
+1. User enters a topic string (e.g. `learning`).
+2. Papers are matched where any **tag** contains that string (case-insensitive).
+3. Results are **grouped by tag** (e.g. `machine learning`, `deep learning`).
+4. All papers in each tag group are listed with links to paper detail.
+
+Tags are populated on **OpenAlex** import (keywords/concepts) or **manual** ingest. Crossref DOI imports usually have empty tags unless added manually.
 
 ### Interactions
 

@@ -37,15 +37,24 @@ When the frontend runs inside Docker, `VITE_PROXY_TARGET=http://api:8000` is set
 
 | Route | Description |
 |-------|-------------|
-| `/` | Hybrid search with year/tag/venue filters |
+| `/` | Hybrid search with year/tag/venue filters; shows total indexed paper count |
 | `/papers/:id` | Paper detail, references, related preview, save, rating, delete |
 | `/papers/:id/related` | Full related-papers list |
-| `/explore?tag=…` | Topic clusters grouped by venue |
+| `/explore?tag=…` | Find papers by similar tags; grouped by tag with links to each paper |
 | `/saved` | Saved papers (browser-local user ID) |
-| `/import` | Sync import: DOI, OpenAlex search, manual paper form |
+| `/import` | DOI import, OpenAlex bulk import, arXiv DOI extraction, manual paper form |
 | `/authors/:name` | Papers by author name |
 
-All imports run synchronously — the UI waits for MongoDB + Elasticsearch + Pinecone indexing to finish.
+### Import page
+
+| Section | Behavior |
+|---------|----------|
+| **Import by DOI** | One or more DOIs → Crossref metadata → index |
+| **Import from OpenAlex** | Search query + limit → bulk import |
+| **Extract DOIs from arXiv** | Search arXiv → list DOIs → copy, add to DOI field, or import |
+| **Manual paper ingest** | Fill form → index directly |
+
+All sync imports wait for MongoDB + Elasticsearch + Pinecone indexing to finish.
 
 ## Build
 
