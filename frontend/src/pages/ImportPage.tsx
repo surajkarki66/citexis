@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { importDoiSync, importOpenAlexSync, importPaperSync } from "../api/client";
+import { importDoiSync, importOpenAlexSync, importPaperSync, searchArxiv } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import { mergeImportResults, parseDoiList } from "../lib/import";
-import type { ImportResult, ManualPaperInput } from "../types";
+import type { ArxivSearchResponse, ImportResult, ManualPaperInput } from "../types";
 
 const EMPTY_MANUAL_PAPER: ManualPaperInput = {
   title: "",
@@ -14,6 +14,13 @@ const EMPTY_MANUAL_PAPER: ManualPaperInput = {
   venue: "",
   tags: "",
 };
+
+const ARXIV_SUGGESTIONS = [
+  "object detection",
+  "transformer",
+  "large language model",
+  "reinforcement learning",
+];
 
 const OPENALEX_SUGGESTIONS = [
   "machine learning",
@@ -91,6 +98,11 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [manualPaper, setManualPaper] = useState<ManualPaperInput>(EMPTY_MANUAL_PAPER);
+  const [arxivQuery, setArxivQuery] = useState("object detection");
+  const [arxivLimit, setArxivLimit] = useState(10);
+  const [arxivSearching, setArxivSearching] = useState(false);
+  const [arxivResults, setArxivResults] = useState<ArxivSearchResponse | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   async function handleDoiImport(e: React.FormEvent) {
     e.preventDefault();
@@ -145,6 +157,80 @@ export default function ImportPage() {
     }
   }
 
+  async function handleArxivSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!arxivQuery.trim()) {
+      setError("Enter an arXiv search query.");
+      return;
+    }
+
+    setArxivSearching(true);
+    setError(null);
+    setCopyMessage(null);
+    setArxivResults(null);
+
+    try {
+      const data = await searchArxiv(arxivQuery.trim(), arxivLimit);
+      setArxivResults(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "arXiv search failed");
+    } finally {
+      setArxivSearching(false);
+    }
+  }
+
+  async function handleImportArxivDois() {
+    if (!arxivResults || arxivResults.dois.length === 0) {
+      setError("No DOIs to import from the current arXiv results.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    const results: ImportResult[] = [];
+    try {
+      for (let i = 0; i < arxivResults.dois.length; i += 1) {
+        setProgress(`Importing arXiv DOI ${i + 1} of ${arxivResults.dois.length}…`);
+        results.push(await importDoiSync(arxivResults.dois[i], enrich));
+      }
+      setResult(mergeImportResults(results));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "DOI import failed");
+      if (results.length > 0) {
+        setResult(mergeImportResults(results));
+      }
+    } finally {
+      setProgress(null);
+      setLoading(false);
+    }
+  }
+
+  function handleCopyArxivDois() {
+    if (!arxivResults || arxivResults.dois.length === 0) {
+      setError("No DOIs to copy from the current arXiv results.");
+      return;
+    }
+
+    const text = arxivResults.dois.join("\n");
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopyMessage(`Copied ${arxivResults.dois.length} DOI(s) to clipboard.`);
+      setError(null);
+    });
+  }
+
+  function handleFillDoiImport() {
+    if (!arxivResults || arxivResults.dois.length === 0) {
+      setError("No DOIs to add from the current arXiv results.");
+      return;
+    }
+
+    setDoiText(arxivResults.dois.join("\n"));
+    setCopyMessage("DOIs added to the import-by-DOI field.");
+    setError(null);
+  }
+
   async function handleManualIngest(e: React.FormEvent) {
     e.preventDefault();
     if (!manualPaper.title.trim()) {
@@ -179,7 +265,7 @@ export default function ImportPage() {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <h1 className="font-serif text-3xl text-brand-900">Import papers</h1>
       <p className="mt-3 max-w-2xl text-muted">
-        Add papers by DOI, OpenAlex search, or manual entry. Imports run
+        Add papers by DOI, OpenAlex search, arXiv DOI extraction, or manual entry. Imports run
         synchronously and index immediately.
       </p>
 
@@ -192,6 +278,12 @@ export default function ImportPage() {
         />
         Enrich with CORE full-text URLs when available
       </label>
+
+      {copyMessage && (
+        <div className="mt-6 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {copyMessage}
+        </div>
+      )}
 
       {error && (
         <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -277,6 +369,137 @@ export default function ImportPage() {
           </form>
         </section>
       </div>
+
+      <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="font-serif text-xl text-slate-900">Extract DOIs from arXiv</h2>
+        <p className="mt-2 text-sm text-muted">
+          Search arXiv and list DOIs from matching papers. Not every arXiv preprint has a DOI.
+        </p>
+        <form onSubmit={handleArxivSearch} className="mt-4 space-y-4">
+          <input
+            type="text"
+            value={arxivQuery}
+            onChange={(e) => setArxivQuery(e.target.value)}
+            placeholder="object detection"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          />
+          <div>
+            <label className="text-sm text-slate-700">Papers to fetch: {arxivLimit}</label>
+            <input
+              type="range"
+              min={1}
+              max={50}
+              value={arxivLimit}
+              onChange={(e) => setArxivLimit(Number(e.target.value))}
+              className="mt-2 w-full accent-brand-600"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ARXIV_SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setArxivQuery(s)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 hover:border-brand-300 hover:text-brand-700"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <button
+            type="submit"
+            disabled={loading || arxivSearching}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {arxivSearching ? "Searching arXiv…" : "Search arXiv"}
+          </button>
+        </form>
+
+        {arxivResults && (
+          <div className="mt-6 border-t border-slate-100 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-700">
+                Found {arxivResults.total_results.toLocaleString()} matches. Showing{" "}
+                {arxivResults.returned} paper{arxivResults.returned === 1 ? "" : "s"} with{" "}
+                {arxivResults.doi_count} DOI{arxivResults.doi_count === 1 ? "" : "s"}.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyArxivDois}
+                  disabled={arxivResults.dois.length === 0}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Copy DOIs
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFillDoiImport}
+                  disabled={arxivResults.dois.length === 0}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Add to DOI import
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportArxivDois}
+                  disabled={loading || arxivResults.dois.length === 0}
+                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  Import DOIs
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Title</th>
+                    <th className="px-4 py-3 font-medium">arXiv ID</th>
+                    <th className="px-4 py-3 font-medium">DOI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {arxivResults.papers.map((paper) => (
+                    <tr key={paper.arxiv_id ?? paper.title}>
+                      <td className="px-4 py-3 text-slate-800">{paper.title}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                        {paper.arxiv_id ? (
+                          <a
+                            href={`https://arxiv.org/abs/${paper.arxiv_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-brand-600 hover:underline"
+                          >
+                            {paper.arxiv_id}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                        {paper.doi ? (
+                          <a
+                            href={`https://doi.org/${paper.doi}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-brand-600 hover:underline"
+                          >
+                            {paper.doi}
+                          </a>
+                        ) : (
+                          <span className="text-muted">No DOI</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="font-serif text-xl text-slate-900">Manual paper ingest</h2>

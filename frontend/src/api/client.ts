@@ -1,4 +1,5 @@
 import type {
+  ArxivSearchResponse,
   AuthorPaper,
   ImportResult,
   ManualPaperInput,
@@ -29,7 +30,6 @@ export function searchPapers(body: SearchRequest): Promise<SearchResponse> {
     body: JSON.stringify(body),
   });
 }
-
 export function getPaper(id: string): Promise<Paper> {
   return request<Record<string, unknown>>(`/papers/${id}`).then((data) => ({
     ...(data as Paper),
@@ -65,6 +65,14 @@ export function importOpenAlexSync(
     enrich: String(enrich),
   });
   return request(`/papers/import/openalex/sync?${params}`, { method: "POST" });
+}
+
+export function searchArxiv(query: string, limit: number): Promise<ArxivSearchResponse> {
+  const params = new URLSearchParams({
+    query,
+    limit: String(limit),
+  });
+  return request(`/papers/import/arxiv/search?${params}`);
 }
 
 export type InteractionType = "view" | "save" | "click" | "rating";

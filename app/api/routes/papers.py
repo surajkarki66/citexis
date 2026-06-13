@@ -1,8 +1,11 @@
+import httpx
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep, SettingsDep
+from app.core.schemas.arxiv import ArxivSearchResponse
 from app.core.schemas.paper import PaperCreate, PaperResponse
 from app.core.schemas.recommendation import RecommendationResponse
+from app.services.ingestion.sources.arxiv import ArxivSource
 from app.workers.tasks import (
     index_paper_task,
     ingest_doi_task,
@@ -140,6 +143,32 @@ async def import_doi_sync(
     source = CrossrefDoiSource()
     result = await pipeline.ingest_from_source(source, doi, 1, enrich=enrich)
     return {"status": "completed", **result}
+
+
+@router.get("/import/arxiv/search", response_model=ArxivSearchResponse)
+async def search_arxiv(
+    query: str,
+    limit: int = 10,
+) -> ArxivSearchResponse:
+    """Search arXiv and extract DOIs from matching papers."""
+    if not query.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Search query is required",
+        )
+
+    source = ArxivSource()
+    try:
+        result = await source.search(query, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not reach arXiv API: {exc.__class__.__name__}: {exc}",
+        ) from exc
+
+    return ArxivSearchResponse.model_validate(result)
 
 
 @router.post("/import/openalex/sync", response_model=dict)

@@ -73,6 +73,25 @@ export interface AuthorPaper {
   venue: string | null;
 }
 
+
+export interface ArxivPaperResult {
+  arxiv_id: string | null;
+  title: string;
+  authors: string[];
+  doi: string | null;
+  year: number | null;
+}
+
+export interface ArxivSearchResponse {
+  query: string;
+  arxiv_query: string;
+  total_results: number;
+  returned: number;
+  doi_count: number;
+  dois: string[];
+  papers: ArxivPaperResult[];
+}
+
 export interface ImportResult {
   status: string;
   imported: number;
