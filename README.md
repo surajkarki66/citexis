@@ -1,6 +1,6 @@
 # Citexis
 
-Hybrid academic paper discovery: **MongoDB** (metadata) + **Pinecone** (semantic search) + **Elasticsearch** (keyword), with a **React** frontend and optional **Celery + Redis** for API-only background jobs.
+Hybrid academic paper discovery: **MongoDB** (metadata) + **Pinecone** (semantic search) + **Elasticsearch** (keyword), with a **React** frontend and **Celery + Redis** for background bulk imports.
 
 ## Architecture
 
@@ -86,10 +86,10 @@ Startup wiring lives in `wire_app_state()` (`app/api/deps.py`): it builds reposi
 
 ### Data flows
 
-**Ingestion** (sync via UI/API, or async via Celery for scripts):
+**Ingestion** (sync for manual entry, or async via Celery for bulk imports):
 
 ```
-Source (OpenAlex / Crossref DOI + optional CORE full-text URL enrichment)
+Source (OpenAlex / Crossref DOI / JSON file + optional CORE full-text URL enrichment)
     → normalizer          # app/services/ingestion/normalizer.py
     → MongoDB create      # paper_repository (dedup by DOI when present)
     → Pinecone upsert_records  # embed title + abstract + tags (title-only if no abstract)
@@ -99,14 +99,18 @@ Source (OpenAlex / Crossref DOI + optional CORE full-text URL enrichment)
 
 Import paths:
 
-| Method | Source | Notes |
-|--------|--------|--------|
-| DOI sync | Crossref | Metadata + citations; OpenAlex abstract fallback when Crossref has none |
-| OpenAlex sync | OpenAlex | Search by query; tags from keywords/concepts |
-| Manual sync | User form | Full control over title, abstract, tags, venue |
-| arXiv search | arXiv API | **DOI extraction only** — search → list DOIs → import via Crossref |
+| Method | Source | Mode | Notes |
+|--------|--------|------|--------|
+| Multi-DOI bulk | Crossref | **Celery** (UI + API) | One or many DOIs; optional CORE `full_text_url` enrichment |
+| OpenAlex bulk | OpenAlex | **Celery** (UI + API) | Search by query; tags from keywords/concepts |
+| JSON bulk | User file | **Celery** (UI + API) | Complete metadata in JSON; **no** CORE enrichment |
+| Manual ingest | User form | **Sync** (UI + API) | Blocks until MongoDB + both indexes are updated |
+| arXiv search | arXiv API | Search only | Extract DOIs → import via multi-DOI bulk (Celery) |
+| Single DOI / scripts | Crossref / OpenAlex | Sync or Celery | `/import/doi/sync` and `/import/openalex/sync` for blocking API use |
 
-The **Import** page and sync API routes block until MongoDB + both indexes are updated. Async Celery endpoints remain available for bulk jobs outside the UI.
+**Background imports** queue a Celery task and return `task_id`. Poll `GET /api/v1/tasks/{task_id}` until `ready: true` for imported/skipped/failed counts. The Import page does this automatically for DOI, OpenAlex, and JSON bulk flows.
+
+JSON bulk requires every paper to include `title`, `authors`, `abstract`, `year`, `venue`, `tags`, and `full_text_url`. See `fixtures/sample_papers.json`. Limits: `JSON_IMPORT_MAX_BYTES`, `JSON_IMPORT_MAX_PAPERS` in `.env`.
 
 **Hybrid search**:
 
@@ -143,7 +147,7 @@ paper_id
 | Tune search | `app/config.py` (`search_*`, `pinecone_*`), `hybrid.py`, `rrf.py` |
 | New recommendation signal | `app/services/recommendations/` + register weight in `engine.py` |
 | Explore / browse queries | `app/services/explore/queries.py` |
-| Async long jobs | `app/workers/tasks.py` — mirror API patterns with `_build_pipeline()` |
+| Async long jobs | `app/workers/tasks.py` — `ingest_json_bulk_task`, `ingest_dois_bulk_task`, `ingest_openalex_task`; poll via `app/api/routes/tasks.py` |
 | ES index mapping | `scripts/setup_es_index.py` |
 | Reconcile indexes with MongoDB | `scripts/reindex_elasticsearch.py`, `scripts/reindex_pinecone.py`, `scripts/cleanup_orphan_indexes.py` |
 
@@ -164,12 +168,13 @@ citexis/
 │   │   └── routes/
 │   │       ├── search.py           # POST /search (hybrid)
 │   │       ├── papers.py           # CRUD, sync/async ingest, related
+│   │       ├── tasks.py            # GET /tasks/{id} — Celery task polling
 │   │       ├── interactions.py     # views, saves, ratings, clicks
 │   │       ├── authors.py          # Author paper lists
 │   │       └── explore.py          # Topic clusters, citation neighbors
 │   ├── core/
 │   │   ├── constants.py            # Enums (embedding status, etc.)
-│   │   └── schemas/                # paper, search, user, recommendation, arxiv
+│   │   └── schemas/                # paper, search, user, recommendation, arxiv, json_import, doi_import
 │   ├── db/
 │   │   ├── mongodb.py
 │   │   ├── elasticsearch.py
@@ -179,7 +184,8 @@ citexis/
 │   │   └── user_repository.py
 │   ├── services/
 │   │   ├── ingestion/
-│   │   │   ├── pipeline.py         # ingest_one / index_paper
+│   │   │   ├── pipeline.py         # ingest_one / ingest_many / index_paper
+│   │   │   ├── json_import.py      # parse & validate bulk JSON uploads
 │   │   │   ├── normalizer.py
 │   │   │   └── sources/            # openalex, crossref, arxiv, core_enricher
 │   │   ├── indexing/               # elasticsearch_indexer, pinecone_indexer, pinecone_text
@@ -188,7 +194,9 @@ citexis/
 │   │   └── explore/                # tag clusters (MongoDB), author lists, citation DOIs
 │   └── workers/
 │       ├── celery_app.py
-│       └── tasks.py                # index_paper_task, ingest_openalex_task, ingest_doi_task
+│       └── tasks.py                # bulk JSON/DOI/OpenAlex tasks, index_paper_task
+├── fixtures/
+│   └── sample_papers.json          # Example JSON bulk import file
 ├── scripts/
 │   ├── setup_es_index.py           # Create ES index (used by es-init)
 │   ├── reindex_elasticsearch.py    # Mongo → ES backfill
@@ -268,7 +276,7 @@ docker compose up elasticsearch redis es-init
 # 3. Run API
 uvicorn app.main:app --reload
 
-# 4. Run Celery worker (separate terminal — only needed for async API imports, not the UI)
+# 4. Run Celery worker (required for DOI bulk, OpenAlex bulk, and JSON import on the Import page)
 celery -A app.workers.celery_app worker --loglevel=info
 
 # 5. Frontend (separate terminal)
@@ -305,7 +313,7 @@ React UI in `frontend/` (Vite + TypeScript + Tailwind). Nav: **Search**, **Explo
 | `/papers/:id/related` | Full related-papers list | `GET /papers/{id}/related` |
 | `/explore?tag=…` | Papers grouped by matching tags (MongoDB; partial tag match) | `GET /explore/topics` |
 | `/saved` | Saved papers list, unsave | `GET /interactions/users/{id}/saved`, `DELETE …/saved/{paper_id}` |
-| `/import` | DOI, OpenAlex, arXiv DOI extraction, manual ingest | `POST /papers/import/doi/sync`, `POST /papers/import/openalex/sync`, `GET /papers/import/arxiv/search`, `POST /papers/sync` |
+| `/import` | Multi-DOI, OpenAlex bulk, JSON upload (background), arXiv DOI extraction, manual ingest (sync) | `POST /papers/import/doi/bulk`, `POST /papers/import/openalex`, `POST /papers/import/json`, `GET /tasks/{id}`, `GET /papers/import/arxiv/search`, `POST /papers/sync` |
 | `/authors/:name` | Papers by author; click tracking | `GET /authors/{name}/papers`, `POST /interactions` (click) |
 
 User identity is a browser-local ID (`localStorage`) used for saves, ratings, and interaction history.
@@ -341,25 +349,38 @@ Base path: `/api/v1`. Interactive docs: http://localhost:8000/docs
 | GET | `/explore/topics?tag=…` | Papers with similar tags, grouped by tag | Explore page |
 | GET | `/explore/papers/{id}/neighbors` | Citation DOI neighbors | Paper page (references) |
 
-### Import (sync — used by UI)
+### Import (sync — manual entry only)
 
 | Method | Path | Description | UI |
 |--------|------|-------------|-----|
 | POST | `/papers/sync` | Manual paper ingest (blocks until indexed) | Import page |
-| POST | `/papers/import/doi/sync` | DOI ingest via Crossref (+ OpenAlex abstract fallback) | Import page |
-| POST | `/papers/import/openalex/sync` | OpenAlex search import | Import page |
-| GET | `/papers/import/arxiv/search` | Search arXiv and extract DOIs (no direct ingest) | Import page |
 
-### Import (async — Celery, API/scripts only)
+Sync import endpoints for scripts (not used by the Import page UI):
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/papers` | Queue manual paper ingest |
-| POST | `/papers/import/doi` | Queue DOI ingest |
-| POST | `/papers/import/openalex` | Queue OpenAlex bulk import |
-| POST | `/papers/import/{source}` | Generic import (`openalex`, `crossref`) |
+| POST | `/papers/import/doi/sync` | Single DOI via Crossref (+ OpenAlex abstract fallback) |
+| POST | `/papers/import/openalex/sync` | OpenAlex search import (blocks until done) |
 
-Requires the **worker** container (`celery -A app.workers.celery_app worker`).
+### Import (async — Celery, used by UI for bulk flows)
+
+| Method | Path | Description | UI |
+|--------|------|-------------|-----|
+| POST | `/papers/import/doi/bulk` | Multi-DOI import (`{ dois, enrich }`) | Import page, arXiv DOI import |
+| POST | `/papers/import/openalex` | OpenAlex bulk import (query + limit) | Import page |
+| POST | `/papers/import/json` | JSON file upload (multipart) | Import page |
+| GET | `/papers/import/arxiv/search` | Search arXiv and extract DOIs | Import page |
+| POST | `/papers` | Queue manual paper ingest | — |
+| POST | `/papers/import/doi` | Queue single DOI ingest | — |
+| POST | `/papers/import/{source}` | Generic import (`openalex`, `crossref`) | — |
+
+Poll task status after any `202 Accepted` import:
+
+| Method | Path | Description | UI |
+|--------|------|-------------|-----|
+| GET | `/tasks/{task_id}` | Celery state + result when complete | Import page (auto-poll) |
+
+Requires the **worker** (`celery -A app.workers.celery_app worker` or the `worker` Compose service).
 
 ### Explore topics
 
@@ -386,7 +407,7 @@ Tags are populated on **OpenAlex** import (keywords/concepts) or **manual** inge
 | Component | Default |
 |-----------|---------|
 | Pinecone embed | Index-configured hosted model (server-side) |
-| Queue | Celery + Redis (optional; async import endpoints only) |
+| Queue | Celery + Redis (required for bulk imports on the Import page) |
 | Keyword search | Elasticsearch (Docker) |
 | Metadata | MongoDB (external) |
 | API | FastAPI (Docker or local) |
@@ -400,7 +421,7 @@ docker compose up
 ├── redis           → host port 6380 by default (container 6379; volume redis_data)
 ├── es-init         → one-shot: creates ES index
 ├── api             → port 8000
-├── worker          → Celery consumer (async imports; not required for UI)
+├── worker          → Celery consumer (required for DOI/OpenAlex/JSON bulk import UI)
 └── frontend        → port 5173
 ```
 

@@ -42,19 +42,22 @@ When the frontend runs inside Docker, `VITE_PROXY_TARGET=http://api:8000` is set
 | `/papers/:id/related` | Full related-papers list |
 | `/explore?tag=…` | Find papers by similar tags; grouped by tag with links to each paper |
 | `/saved` | Saved papers (browser-local user ID) |
-| `/import` | DOI import, OpenAlex bulk import, arXiv DOI extraction, manual paper form |
+| `/import` | Multi-DOI bulk, OpenAlex bulk, JSON upload, arXiv DOI extraction, manual ingest | See **Import page** below |
 | `/authors/:name` | Papers by author name |
 
 ### Import page
 
 | Section | Behavior |
 |---------|----------|
-| **Import by DOI** | One or more DOIs → Crossref metadata → index |
-| **Import from OpenAlex** | Search query + limit → bulk import |
-| **Extract DOIs from arXiv** | Search arXiv → list DOIs → copy, add to DOI field, or import |
-| **Manual paper ingest** | Fill form → index directly |
+| **Import by DOI** | One or more DOIs → queued Celery task → poll until indexed |
+| **Import from OpenAlex** | Search query + limit → background bulk import |
+| **Extract DOIs from arXiv** | Search arXiv → list DOIs → copy, add to DOI field, or bulk import |
+| **Bulk import from JSON** | Upload JSON with complete paper records → background import |
+| **Manual paper ingest** | Fill form → sync index (blocks until done) |
 
-All sync imports wait for MongoDB + Elasticsearch + Pinecone indexing to finish.
+Bulk imports (DOI, OpenAlex, JSON) require the **Celery worker** running. The page polls `GET /api/v1/tasks/{task_id}` until each job finishes.
+
+JSON papers must include `title`, `authors`, `abstract`, `year`, `venue`, `tags`, and `full_text_url`. Sample: `fixtures/sample_papers.json` in the repo root.
 
 ## Build
 
