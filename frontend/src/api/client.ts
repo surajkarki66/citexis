@@ -1,12 +1,14 @@
 import type {
   ArxivSearchResponse,
   AuthorPaper,
+  BulkImportAccepted,
   ImportResult,
   ManualPaperInput,
   Paper,
   RecommendationResponse,
   SearchRequest,
   SearchResponse,
+  TaskStatus,
   TopicCluster,
 } from "../types";
 
@@ -59,6 +61,13 @@ export function importDoiSync(doi: string, enrich = true): Promise<ImportResult>
   return request(`/papers/import/doi/sync?${params}`, { method: "POST" });
 }
 
+export function importDoisBulk(dois: string[], enrich = true): Promise<BulkImportAccepted> {
+  return request("/papers/import/doi/bulk", {
+    method: "POST",
+    body: JSON.stringify({ dois, enrich }),
+  });
+}
+
 export function importOpenAlexSync(
   query: string,
   limit: number,
@@ -72,12 +81,67 @@ export function importOpenAlexSync(
   return request(`/papers/import/openalex/sync?${params}`, { method: "POST" });
 }
 
+export function importOpenAlexBulk(
+  query: string,
+  limit: number,
+  enrich = true,
+): Promise<BulkImportAccepted> {
+  const params = new URLSearchParams({
+    query,
+    limit: String(limit),
+    enrich: String(enrich),
+  });
+  return request(`/papers/import/openalex?${params}`, { method: "POST" });
+}
+
 export function searchArxiv(query: string, limit: number): Promise<ArxivSearchResponse> {
   const params = new URLSearchParams({
     query,
     limit: String(limit),
   });
   return request(`/papers/import/arxiv/search?${params}`);
+}
+
+export async function importJsonBulk(file: File): Promise<BulkImportAccepted> {
+  const form = new FormData();
+  form.append("file", file);
+
+  const response = await fetch(`${API_BASE}/papers/import/json`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed (${response.status})`);
+  }
+
+  return response.json() as Promise<BulkImportAccepted>;
+}
+
+export function getTaskStatus(taskId: string): Promise<TaskStatus> {
+  return request(`/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export async function pollImportTask(
+  taskId: string,
+  onProgress?: (state: string) => void,
+): Promise<ImportResult> {
+  for (;;) {
+    const status = await getTaskStatus(taskId);
+    onProgress?.(status.state);
+
+    if (status.ready) {
+      if (status.state === "SUCCESS" && status.result) {
+        return status.result;
+      }
+      throw new Error(status.error || `Import task failed (${status.state})`);
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2000);
+    });
+  }
 }
 
 export type InteractionType = "view" | "save" | "click" | "rating";

@@ -108,6 +108,21 @@ export interface ImportResult {
   failed_reasons: string[];
 }
 
+export interface BulkImportAccepted {
+  status: string;
+  task_id: string;
+  source: string;
+  queued: number;
+}
+
+export interface TaskStatus {
+  task_id: string;
+  state: string;
+  ready: boolean;
+  result?: ImportResult;
+  error?: string;
+}
+
 export interface RecommendationResponse {
   paper_id: string;
   items: PaperRecommendation[];

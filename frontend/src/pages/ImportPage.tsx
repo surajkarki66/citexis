@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { importDoiSync, importOpenAlexSync, importPaperSync, searchArxiv } from "../api/client";
+import { importDoisBulk, importJsonBulk, importOpenAlexBulk, importPaperSync, pollImportTask, searchArxiv } from "../api/client";
 import EmptyState from "../components/EmptyState";
-import { mergeImportResults, parseDoiList } from "../lib/import";
+import { parseDoiList } from "../lib/import";
 import type { ArxivSearchResponse, ImportResult, ManualPaperInput } from "../types";
 
 const EMPTY_MANUAL_PAPER: ManualPaperInput = {
@@ -103,6 +103,10 @@ export default function ImportPage() {
   const [arxivSearching, setArxivSearching] = useState(false);
   const [arxivResults, setArxivResults] = useState<ArxivSearchResponse | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [jsonFile, setJsonFile] = useState<File | null>(null);
+  const [jsonImporting, setJsonImporting] = useState(false);
+  const [doiImporting, setDoiImporting] = useState(false);
+  const [openAlexImporting, setOpenAlexImporting] = useState(false);
 
   async function handleDoiImport(e: React.FormEvent) {
     e.preventDefault();
@@ -112,25 +116,23 @@ export default function ImportPage() {
       return;
     }
 
-    setLoading(true);
+    setDoiImporting(true);
     setError(null);
     setResult(null);
+    setProgress(`Queueing ${dois.length} DOI(s) for background import…`);
 
-    const results: ImportResult[] = [];
     try {
-      for (let i = 0; i < dois.length; i += 1) {
-        setProgress(`Importing DOI ${i + 1} of ${dois.length}…`);
-        results.push(await importDoiSync(dois[i], enrich));
-      }
-      setResult(mergeImportResults(results));
+      const accepted = await importDoisBulk(dois, enrich);
+      setProgress(`Queued ${accepted.queued} DOI(s). Waiting for worker…`);
+      const data = await pollImportTask(accepted.task_id, (state) => {
+        setProgress(`Background DOI import in progress (${state.toLowerCase()})…`);
+      });
+      setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "DOI import failed");
-      if (results.length > 0) {
-        setResult(mergeImportResults(results));
-      }
     } finally {
       setProgress(null);
-      setLoading(false);
+      setDoiImporting(false);
     }
   }
 
@@ -141,19 +143,23 @@ export default function ImportPage() {
       return;
     }
 
-    setLoading(true);
+    setOpenAlexImporting(true);
     setError(null);
     setResult(null);
-    setProgress("Fetching from OpenAlex and indexing papers…");
+    setProgress("Queueing OpenAlex import…");
 
     try {
-      const data = await importOpenAlexSync(openAlexQuery.trim(), openAlexLimit, enrich);
+      const accepted = await importOpenAlexBulk(openAlexQuery.trim(), openAlexLimit, enrich);
+      setProgress(`Queued up to ${accepted.queued} paper(s). Waiting for worker…`);
+      const data = await pollImportTask(accepted.task_id, (state) => {
+        setProgress(`Background OpenAlex import in progress (${state.toLowerCase()})…`);
+      });
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "OpenAlex import failed");
     } finally {
       setProgress(null);
-      setLoading(false);
+      setOpenAlexImporting(false);
     }
   }
 
@@ -189,18 +195,15 @@ export default function ImportPage() {
     setError(null);
     setResult(null);
 
-    const results: ImportResult[] = [];
     try {
-      for (let i = 0; i < arxivResults.dois.length; i += 1) {
-        setProgress(`Importing arXiv DOI ${i + 1} of ${arxivResults.dois.length}…`);
-        results.push(await importDoiSync(arxivResults.dois[i], enrich));
-      }
-      setResult(mergeImportResults(results));
+      const accepted = await importDoisBulk(arxivResults.dois, enrich);
+      setProgress(`Queued ${accepted.queued} DOI(s). Waiting for worker…`);
+      const data = await pollImportTask(accepted.task_id, (state) => {
+        setProgress(`Background DOI import in progress (${state.toLowerCase()})…`);
+      });
+      setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "DOI import failed");
-      if (results.length > 0) {
-        setResult(mergeImportResults(results));
-      }
     } finally {
       setProgress(null);
       setLoading(false);
@@ -229,6 +232,35 @@ export default function ImportPage() {
     setDoiText(arxivResults.dois.join("\n"));
     setCopyMessage("DOIs added to the import-by-DOI field.");
     setError(null);
+  }
+
+  async function handleJsonImport(e: React.FormEvent) {
+    e.preventDefault();
+    if (!jsonFile) {
+      setError("Select a JSON file to import.");
+      return;
+    }
+
+    setJsonImporting(true);
+    setError(null);
+    setResult(null);
+    setCopyMessage(null);
+      setProgress(`Uploading ${jsonFile.name} and queueing background import…`);
+
+    try {
+      const accepted = await importJsonBulk(jsonFile);
+      setProgress(`Queued ${accepted.queued} paper(s). Waiting for worker…`);
+      const data = await pollImportTask(accepted.task_id, (state) => {
+        setProgress(`Background JSON import in progress (${state.toLowerCase()})…`);
+      });
+      setResult(data);
+      setJsonFile(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "JSON bulk import failed");
+    } finally {
+      setProgress(null);
+      setJsonImporting(false);
+    }
   }
 
   async function handleManualIngest(e: React.FormEvent) {
@@ -265,8 +297,8 @@ export default function ImportPage() {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <h1 className="font-serif text-3xl text-brand-900">Import papers</h1>
       <p className="mt-3 max-w-2xl text-muted">
-        Add papers by DOI, OpenAlex search, arXiv DOI extraction, or manual entry. Imports run
-        synchronously and index immediately.
+        Add papers by DOI, OpenAlex search, arXiv DOI extraction, JSON bulk upload, or manual entry.
+        DOI, OpenAlex, and JSON bulk imports run in the Celery worker; manual ingest is synchronous.
       </p>
 
       <label className="mt-6 flex items-center gap-2 text-sm text-slate-700">
@@ -313,10 +345,10 @@ export default function ImportPage() {
             />
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || doiImporting || openAlexImporting || jsonImporting || arxivSearching}
               className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
             >
-              Import DOIs
+              {doiImporting ? "Importing in background…" : "Import DOIs"}
             </button>
           </form>
         </section>
@@ -361,10 +393,10 @@ export default function ImportPage() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || doiImporting || openAlexImporting || jsonImporting || arxivSearching}
               className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
             >
-              Import from OpenAlex
+              {openAlexImporting ? "Importing in background…" : "Import from OpenAlex"}
             </button>
           </form>
         </section>
@@ -408,7 +440,7 @@ export default function ImportPage() {
           </div>
           <button
             type="submit"
-            disabled={loading || arxivSearching}
+            disabled={loading || doiImporting || openAlexImporting || arxivSearching}
             className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
           >
             {arxivSearching ? "Searching arXiv…" : "Search arXiv"}
@@ -443,7 +475,7 @@ export default function ImportPage() {
                 <button
                   type="button"
                   onClick={handleImportArxivDois}
-                  disabled={loading || arxivResults.dois.length === 0}
+                  disabled={loading || doiImporting || openAlexImporting || arxivResults.dois.length === 0}
                   className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
                 >
                   Import DOIs
@@ -499,6 +531,35 @@ export default function ImportPage() {
             </div>
           </div>
         )}
+      </section>
+
+      <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="font-serif text-xl text-slate-900">Bulk import from JSON</h2>
+        <p className="mt-2 text-sm text-muted">
+          Upload a JSON file with complete paper records. Each paper must
+          include title, authors, abstract, year, venue, tags, and full_text_url. Sample file:{" "}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">fixtures/sample_papers.json</code>
+        </p>
+        <form onSubmit={handleJsonImport} className="mt-4 space-y-4">
+          <input
+            type="file"
+            accept="application/json,.json"
+            onChange={(e) => setJsonFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
+          />
+          {jsonFile && (
+            <p className="text-sm text-slate-600">
+              Selected: {jsonFile.name} ({Math.ceil(jsonFile.size / 1024)} KB)
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={loading || doiImporting || openAlexImporting || jsonImporting || arxivSearching || !jsonFile}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {jsonImporting ? "Importing in background…" : "Upload JSON"}
+          </button>
+        </form>
       </section>
 
       <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -578,7 +639,7 @@ export default function ImportPage() {
 
       {result ? (
         <ImportSummary result={result} />
-      ) : !loading ? (
+      ) : !loading && !jsonImporting && !doiImporting && !openAlexImporting ? (
         <div className="mt-10">
           <EmptyState
             title="No imports yet"
