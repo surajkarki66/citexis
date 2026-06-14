@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     ingestion_enrich_core: bool
     ingestion_max_citations: int
 
+    json_import_max_bytes: int
+    json_import_max_papers: int
+
     search_top_k_per_source: int
     search_rrf_k: int
     search_fusion_top_n: int

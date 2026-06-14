@@ -1,0 +1,33 @@
+{
+  "papers": [
+    {
+      "title": "Event-Based Object Detection with Dynamic Vision Sensors",
+      "authors": [
+        "Alice Chen",
+        "Bob Martinez"
+      ],
+      "abstract": "This paper surveys event-camera pipelines for real-time object detection in robotics and autonomous driving.",
+      "year": 2024,
+      "venue": "VISAPP",
+      "tags": ["computer vision", "event cameras", "object detection"],
+      "full_text_url": "https://arxiv.org/pdf/1805.07931",
+      "cited_by_count": 12
+    },
+    {
+      "title": "Hybrid Retrieval for Scientific Literature Discovery",
+      "authors": [
+        {
+          "name": "Suraj Karki",
+          "affiliation": "Citexis Lab"
+        }
+      ],
+      "abstract": "We combine BM25 keyword search with dense vector retrieval using reciprocal rank fusion for academic paper discovery.",
+      "doi": "10.5555/citexis.sample.2025",
+      "year": 2025,
+      "venue": "Citexis Demo Proceedings",
+      "tags": ["information retrieval", "semantic search", "hybrid search"],
+      "full_text_url": "https://example.org/papers/hybrid-retrieval-citexis-2025.pdf",
+      "cited_by_count": 3
+    }
+  ]
+}

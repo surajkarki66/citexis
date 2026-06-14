@@ -51,6 +51,83 @@ async def _ingest_from_source(
         mongo_client.close()
 
 
+async def _ingest_many(papers: list[PaperCreate], enrich: bool) -> dict:
+    settings = get_settings()
+    pipeline, es_client, mongo_client = _build_pipeline(settings)
+    try:
+        return await pipeline.ingest_many(papers, enrich=enrich)
+    finally:
+        await es_client.close()
+        mongo_client.close()
+
+
+async def _ingest_dois_bulk(dois: list[str], enrich: bool) -> dict:
+    from app.core.doi import normalize_doi
+    from app.services.ingestion.sources.crossref import CrossrefDoiSource
+
+    source = CrossrefDoiSource()
+    settings = get_settings()
+    pipeline, es_client, mongo_client = _build_pipeline(settings)
+
+    papers: list[PaperCreate] = []
+    failed_items: list[str] = []
+    failed_reasons: list[str] = []
+
+    try:
+        for raw in dois:
+            doi = normalize_doi(raw) or raw.strip()
+            if not doi:
+                continue
+            try:
+                batch = await source.fetch(doi, 1)
+                if not batch:
+                    failed_items.append(doi)
+                    failed_reasons.append(f"{doi}: no metadata found")
+                else:
+                    papers.extend(batch)
+            except Exception as exc:
+                failed_items.append(doi)
+                failed_reasons.append(f"{doi}: {exc.__class__.__name__}: {exc}")
+
+        result = await pipeline.ingest_many(papers, enrich=enrich)
+        result["failed"] += len(failed_items)
+        result["failed_items"] = failed_items + result["failed_items"]
+        result["failed_reasons"] = failed_reasons + result["failed_reasons"]
+        return {"status": "completed", **result}
+    finally:
+        await es_client.close()
+        mongo_client.close()
+
+
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=120)
+def ingest_dois_bulk_task(
+    self,
+    dois: list[str],
+    enrich: bool = True,
+) -> dict:
+    """Resolve many DOIs via Crossref and index each paper."""
+    try:
+        return _run_async(_ingest_dois_bulk(dois, enrich))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=120)
+def ingest_json_bulk_task(
+    self,
+    papers_data: list[dict],
+    enrich: bool = True,
+) -> dict:
+    """Import many papers from a validated JSON payload."""
+    papers = [PaperCreate(**item) for item in papers_data]
+
+    try:
+        result = _run_async(_ingest_many(papers, enrich))
+        return {"status": "completed", **result}
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
 def index_paper_task(self, paper_data: dict) -> str:
     """Index a single paper: embed → Pinecone → Elasticsearch."""
@@ -94,7 +171,8 @@ def ingest_source_task(
 def ingest_openalex_task(self, query: str, limit: int, enrich: bool = True) -> dict:
     """Bulk import from OpenAlex search."""
     try:
-        return _run_async(_ingest_from_source("openalex", query, limit, enrich))
+        result = _run_async(_ingest_from_source("openalex", query, limit, enrich))
+        return {"status": "completed", **result}
     except Exception as exc:
         raise self.retry(exc=exc) from exc
 

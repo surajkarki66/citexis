@@ -1,14 +1,19 @@
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep, SettingsDep
 from app.core.schemas.arxiv import ArxivSearchResponse
+from app.core.schemas.doi_import import DoiBulkImportRequest
 from app.core.schemas.paper import PaperCreate, PaperResponse
 from app.core.schemas.recommendation import RecommendationResponse
+from app.core.doi import normalize_doi
+from app.services.ingestion.json_import import JsonImportError, parse_papers_json
 from app.services.ingestion.sources.arxiv import ArxivSource
 from app.workers.tasks import (
     index_paper_task,
     ingest_doi_task,
+    ingest_dois_bulk_task,
+    ingest_json_bulk_task,
     ingest_openalex_task,
     ingest_source_task,
 )
@@ -105,14 +110,108 @@ async def ingest_paper_sync(
     }
 
 
+@router.post("/import/json", status_code=status.HTTP_202_ACCEPTED)
+async def import_json_bulk(
+    settings: SettingsDep,
+    file: UploadFile = File(...),
+) -> dict:
+    """Queue bulk paper import from a complete JSON file (no CORE enrichment)."""
+    filename = file.filename or "upload.json"
+    if not filename.lower().endswith(".json"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only JSON files are supported: {filename}",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Empty file: {filename}",
+        )
+    if len(data) > settings.json_import_max_bytes:
+        max_kb = settings.json_import_max_bytes // 1024
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large (max {max_kb} KB): {filename}",
+        )
+
+    try:
+        papers = parse_papers_json(data)
+    except JsonImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if len(papers) > settings.json_import_max_papers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Maximum {settings.json_import_max_papers} papers per JSON import",
+        )
+
+    task = ingest_json_bulk_task.delay(
+        [paper.model_dump(mode="json") for paper in papers],
+        False,
+    )
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "source": "json",
+        "queued": len(papers),
+    }
+
+
 @router.post("/import/openalex", status_code=status.HTTP_202_ACCEPTED)
 async def import_openalex(
     query: str = "machine learning",
     limit: int = 50,
     enrich: bool = True,
 ) -> dict:
+    limit = max(1, min(limit, 50))
     task = ingest_openalex_task.delay(query, limit, enrich)
-    return {"status": "accepted", "task_id": task.id, "source": "openalex"}
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "source": "openalex",
+        "queued": limit,
+    }
+
+
+@router.post("/import/doi/bulk", status_code=status.HTTP_202_ACCEPTED)
+async def import_dois_bulk(
+    settings: SettingsDep,
+    body: DoiBulkImportRequest,
+) -> dict:
+    """Queue bulk DOI import (Crossref + optional CORE enrichment)."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in body.dois:
+        doi = normalize_doi(raw) or raw.strip()
+        if not doi or doi in seen:
+            continue
+        seen.add(doi)
+        normalized.append(doi)
+
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid DOIs provided",
+        )
+
+    if len(normalized) > settings.json_import_max_papers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Maximum {settings.json_import_max_papers} DOIs per bulk import",
+        )
+
+    task = ingest_dois_bulk_task.delay(normalized, body.enrich)
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "source": "crossref",
+        "queued": len(normalized),
+    }
 
 
 @router.post("/import/doi", status_code=status.HTTP_202_ACCEPTED)
