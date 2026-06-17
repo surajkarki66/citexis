@@ -40,7 +40,6 @@ export interface Author {
 
 export interface PaperRecommendation {
   paper: PaperSummary;
-  reason: string;
   score: number;
 }
 

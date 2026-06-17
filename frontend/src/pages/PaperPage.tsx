@@ -14,12 +14,6 @@ import PaperRating from "../components/PaperRating";
 import { getUserId } from "../lib/userId";
 import type { Paper } from "../types";
 
-const REASON_LABELS: Record<string, string> = {
-  "semantically similar": "Semantic",
-  "cited together": "Citation",
-  "readers also saved": "Collaborative",
-};
-
 export default function PaperPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -36,27 +30,34 @@ export default function PaperPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
+
     const userId = getUserId();
+
     Promise.all([getPaper(id), getCitationDois(id), getSavedPaperIds(userId)])
       .then(([p, dois, savedIds]) => {
         setPaper(p);
         setCitations(dois);
         setSaved(savedIds.includes(id));
+
         recordInteraction({
           user_id: userId,
           paper_id: id,
           interaction_type: "view",
         }).catch(() => undefined);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to load")
+      )
       .finally(() => setLoading(false));
   }, [id]);
 
   async function toggleSave() {
     if (!id || saveBusy) return;
+
     const userId = getUserId();
     setSaveBusy(true);
     setSaveError(null);
+
     try {
       if (saved) {
         await unsavePaper(userId, id);
@@ -78,9 +79,10 @@ export default function PaperPage() {
 
   async function handleDelete() {
     if (!id || deleteBusy) return;
+
     if (
       !window.confirm(
-        "Delete this paper from MongoDB, Elasticsearch, and Pinecone? This cannot be undone.",
+        "Delete this paper from MongoDB, Elasticsearch, and Pinecone? This cannot be undone."
       )
     ) {
       return;
@@ -88,6 +90,7 @@ export default function PaperPage() {
 
     setDeleteBusy(true);
     setDeleteError(null);
+
     try {
       await deletePaper(id);
       navigate("/");
@@ -145,7 +148,9 @@ export default function PaperPage() {
         </div>
 
         <div className="mt-3 flex flex-wrap gap-3 text-sm">
-          {paper.year && <span className="text-slate-600">{paper.year}</span>}
+          {paper.year && (
+            <span className="text-slate-600">{paper.year}</span>
+          )}
           {paper.venue && (
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-slate-600">
               {paper.venue}
@@ -176,7 +181,11 @@ export default function PaperPage() {
           >
             {saved ? "Saved" : "Save paper"}
           </button>
-          {saveError && <span className="text-xs text-red-600">{saveError}</span>}
+
+          {saveError && (
+            <span className="text-xs text-red-600">{saveError}</span>
+          )}
+
           <button
             type="button"
             onClick={handleDelete}
@@ -185,16 +194,24 @@ export default function PaperPage() {
           >
             Delete paper
           </button>
-          {deleteError && <span className="text-xs text-red-600">{deleteError}</span>}
+
+          {deleteError && (
+            <span className="text-xs text-red-600">{deleteError}</span>
+          )}
         </div>
 
         <div className="mt-3">
-          {id && <PaperRating paperId={id} userId={getUserId()} />}
+          {id && (
+            <PaperRating paperId={id} userId={getUserId()} />
+          )}
         </div>
 
         {id && (
           <div className="mt-3">
-            <Link to={`/papers/${id}/related`} className="text-sm text-brand-600 hover:underline">
+            <Link
+              to={`/papers/${id}/related`}
+              className="text-sm text-brand-600 hover:underline"
+            >
               View all related papers →
             </Link>
           </div>
@@ -204,6 +221,7 @@ export default function PaperPage() {
           <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
             {paper.cited_by_count.toLocaleString()} citations
           </span>
+
           <span
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               paper.embedding_status === "indexed"
@@ -213,6 +231,7 @@ export default function PaperPage() {
           >
             {paper.embedding_status}
           </span>
+
           {paper.tags.slice(0, 5).map((tag) => (
             <Link
               key={tag}
@@ -240,7 +259,9 @@ export default function PaperPage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
               Abstract
             </h2>
-            <p className="mt-3 leading-relaxed text-slate-700">{paper.abstract}</p>
+            <p className="mt-3 leading-relaxed text-slate-700">
+              {paper.abstract}
+            </p>
           </section>
         )}
 
@@ -270,7 +291,10 @@ export default function PaperPage() {
       {paper.recommendations.length > 0 && (
         <section className="mt-12">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <h2 className="font-serif text-2xl text-slate-900">Related papers</h2>
+            <h2 className="font-serif text-2xl text-slate-900">
+              Related papers
+            </h2>
+
             {id && (
               <Link
                 to={`/papers/${id}/related`}
@@ -280,6 +304,7 @@ export default function PaperPage() {
               </Link>
             )}
           </div>
+
           <div className="mt-4 space-y-4">
             {paper.recommendations.map((rec, index) => (
               <PaperCard
@@ -287,7 +312,6 @@ export default function PaperPage() {
                 paper={rec.paper}
                 rank={index + 1}
                 score={rec.score}
-                reasonLabel={REASON_LABELS[rec.reason] ?? rec.reason}
               />
             ))}
           </div>

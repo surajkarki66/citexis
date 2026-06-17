@@ -1,7 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 
-class CitationGraphRecommender:
+class CitationBasedRecommender:
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
         self._col = db["papers"]
 

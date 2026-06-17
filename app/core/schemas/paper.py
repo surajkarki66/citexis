@@ -52,7 +52,6 @@ class PaperSummary(BaseModel):
 
 class PaperRecommendation(BaseModel):
     paper: PaperSummary
-    reason: RecommendationReason
     score: float
 
 
