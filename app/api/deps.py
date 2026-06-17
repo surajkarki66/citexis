@@ -33,6 +33,14 @@ def get_hybrid_search(request: Request) -> HybridSearchService:
     return request.app.state.hybrid_search
 
 
+def get_keyword_search(request: Request) -> KeywordSearchService:
+    return request.app.state.keyword_search
+
+
+def get_semantic_search(request: Request) -> SemanticSearchService:
+    return request.app.state.semantic_search
+
+
 def get_recommendations(request: Request) -> RecommendationEngine:
     return request.app.state.recommendations
 
@@ -46,6 +54,8 @@ PaperRepoDep = Annotated[PaperRepository, Depends(get_paper_repo)]
 UserRepoDep = Annotated[UserInteractionRepository, Depends(get_user_repo)]
 IngestionDep = Annotated[IngestionPipeline, Depends(get_ingestion_pipeline)]
 SearchDep = Annotated[HybridSearchService, Depends(get_hybrid_search)]
+KeywordSearchDep = Annotated[KeywordSearchService, Depends(get_keyword_search)]
+SemanticSearchDep = Annotated[SemanticSearchService, Depends(get_semantic_search)]
 RecommendationsDep = Annotated[RecommendationEngine, Depends(get_recommendations)]
 ExploreDep = Annotated[ExploreService, Depends(get_explore)]
 
@@ -60,17 +70,16 @@ def wire_app_state(app) -> None:
     user_repo = UserInteractionRepository(db)
     es_indexer = ElasticsearchIndexer(settings, es)
     pinecone_indexer = PineconeIndexer(settings)
+    keyword_search = KeywordSearchService(settings, es)
+    semantic_search = SemanticSearchService(settings)
 
     app.state.paper_repo = paper_repo
     app.state.user_repo = user_repo
     app.state.ingestion_pipeline = IngestionPipeline(
         settings, paper_repo, es_indexer, pinecone_indexer
     )
-    app.state.hybrid_search = HybridSearchService(
-        settings,
-        paper_repo,
-        KeywordSearchService(settings, es),
-        SemanticSearchService(settings),
-    )
+    app.state.keyword_search = keyword_search
+    app.state.semantic_search = semantic_search
+    app.state.hybrid_search = HybridSearchService(settings, paper_repo, keyword_search, semantic_search)
     app.state.recommendations = RecommendationEngine(settings, db, paper_repo, user_repo)
     app.state.explore = ExploreService(db)
