@@ -115,7 +115,7 @@ async def import_json_bulk(
     settings: SettingsDep,
     file: UploadFile = File(...),
 ) -> dict:
-    """Queue bulk paper import from a complete JSON file (no CORE enrichment)."""
+    """Queue bulk paper import from a complete JSON file."""
     filename = file.filename or "upload.json"
     if not filename.lower().endswith(".json"):
         raise HTTPException(
