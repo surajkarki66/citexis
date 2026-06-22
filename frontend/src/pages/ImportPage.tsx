@@ -298,7 +298,6 @@ export default function ImportPage() {
       <h1 className="font-serif text-3xl text-brand-900">Import papers</h1>
       <p className="mt-3 max-w-2xl text-muted">
         Add papers by DOI, OpenAlex search, arXiv DOI extraction, JSON bulk upload, or manual entry.
-        DOI, OpenAlex, and JSON bulk imports run in the Celery worker; manual ingest is synchronous.
       </p>
 
       <label className="mt-6 flex items-center gap-2 text-sm text-slate-700">
@@ -405,7 +404,7 @@ export default function ImportPage() {
       <section className="mt-10 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="font-serif text-xl text-slate-900">Extract DOIs from arXiv</h2>
         <p className="mt-2 text-sm text-muted">
-          Search arXiv and list DOIs from matching papers. Not every arXiv preprint has a DOI.
+          Search arXiv and list DOIs from matching papers.
         </p>
         <form onSubmit={handleArxivSearch} className="mt-4 space-y-4">
           <input

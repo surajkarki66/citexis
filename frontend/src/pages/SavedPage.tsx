@@ -43,7 +43,7 @@ export default function SavedPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <h1 className="font-serif text-3xl text-brand-900">Saved papers</h1>
-      <p className="mt-2 text-sm text-muted">Papers you bookmarked in this browser.</p>
+      <p className="mt-2 text-sm text-muted">Papers you saved in this browser.</p>
 
       {error && (
         <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

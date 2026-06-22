@@ -51,7 +51,7 @@ export default function HomePage() {
             Discover research papers
           </h1>
           <p className="mt-4 text-lg text-muted">
-            Hybrid semantic + keyword search across your indexed corpus
+            Hybrid Search = Semantic Search + Keyword Search
           </p>
           {totalPapers !== null && (
             <p className="mt-3 text-sm font-medium text-brand-800">

@@ -41,7 +41,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </header>
       <main className="flex-1">{children}</main>
       <footer className="border-t border-slate-200 bg-white py-6 text-center text-sm text-muted">
-        Hybrid search powered by Elasticsearch + Pinecone
+      Citexis powered by Hybrid Search
       </footer>
     </div>
   );
