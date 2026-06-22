@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.constants import EmbeddingStatus, RecommendationReason
+from app.core.constants import EmbeddingStatus
 
 
 class AuthorSchema(BaseModel):
