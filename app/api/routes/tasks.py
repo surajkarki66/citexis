@@ -1,3 +1,4 @@
+from app.api.auth_deps import AdminUserDep
 from celery.result import AsyncResult
 from fastapi import APIRouter
 
@@ -7,7 +8,7 @@ router = APIRouter()
 
 
 @router.get("/{task_id}")
-async def get_task_status(task_id: str) -> dict:
+async def get_task_status(task_id: str, _: AdminUserDep) -> dict:
     """Poll Celery task state and result (used by bulk JSON import UI)."""
     result = AsyncResult(task_id, app=celery_app)
     payload: dict = {

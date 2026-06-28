@@ -1,11 +1,6 @@
-import { recordInteraction } from "../api/client";
-import { getUserId } from "./userId";
+import { recordPaperClick } from "../api/client";
 
-export function recordPaperClick(paperId: string): void {
+export function recordPaperClickSafe(paperId: string): void {
   if (!paperId) return;
-  recordInteraction({
-    user_id: getUserId(),
-    paper_id: paperId,
-    interaction_type: "click",
-  }).catch(() => undefined);
+  recordPaperClick(paperId).catch(() => undefined);
 }

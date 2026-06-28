@@ -29,7 +29,8 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _main(apply: bool) -> None:
+async def backfill_from_mongodb(*, apply: bool) -> tuple[int, int]:
+    """Index MongoDB papers into Elasticsearch. Returns (indexed, failed)."""
     settings = get_settings()
     es_client = get_elasticsearch(settings)
     mongo_client = AsyncIOMotorClient(settings.mongodb_uri)
@@ -51,7 +52,7 @@ async def _main(apply: bool) -> None:
 
         if not apply:
             print("Dry-run only. Re-run with --apply to backfill Elasticsearch.")
-            return
+            return 0, 0
 
         cursor = col.find({})
         async for doc in cursor:
@@ -70,11 +71,16 @@ async def _main(apply: bool) -> None:
             print(f"  {reason}")
         if len(failed_reasons) > 10:
             print(f"  … and {len(failed_reasons) - 10} more")
-        if failed:
-            raise SystemExit(1)
+        return indexed, failed
     finally:
         mongo_client.close()
         await close_elasticsearch()
+
+
+async def _main(apply: bool) -> None:
+    _, failed = await backfill_from_mongodb(apply=apply)
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

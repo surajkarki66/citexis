@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { recordPaperClick } from "../lib/interactions";
+import { recordPaperClickSafe } from "../lib/interactions";
 import type { PaperSummary } from "../types";
 
 interface PaperCardProps {
@@ -31,7 +31,7 @@ export default function PaperCard({
           to={`/papers/${paper.id}`}
           className="min-w-0 flex-1"
           onClick={() => {
-            if (trackClick) recordPaperClick(paper.id);
+            if (trackClick) recordPaperClickSafe(paper.id);
           }}
         >
           <h3 className="font-serif text-lg leading-snug text-slate-900 group-hover:text-brand-700 transition-colors line-clamp-2">

@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     search_fusion_top_n: int
     search_final_top_n: int
 
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 1440
+
+    auth_admin_email: str = ""
+    auth_admin_password: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

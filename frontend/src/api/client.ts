@@ -11,19 +11,63 @@ import type {
   TaskStatus,
   TopicCluster,
 } from "../types";
+import type { TokenResponse, User } from "../types/auth";
+import { authHeaders } from "../lib/authStorage";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
 
+function parseErrorMessage(detail: string, status: number): string {
+  try {
+    const parsed = JSON.parse(detail) as { detail?: unknown };
+    if (typeof parsed.detail === "string") {
+      return parsed.detail;
+    }
+    if (Array.isArray(parsed.detail)) {
+      const first = parsed.detail[0] as { msg?: string };
+      return first?.msg ?? detail;
+    }
+  } catch {
+    // keep raw detail
+  }
+  return detail || `Request failed (${status})`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type") && !(init?.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  for (const [key, value] of Object.entries(authHeaders())) {
+    headers.set(key, value);
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
+    headers,
   });
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `Request failed (${response.status})`);
+    throw new Error(parseErrorMessage(detail, response.status));
   }
   return response.json() as Promise<T>;
+}
+
+export function login(email: string, password: string): Promise<TokenResponse> {
+  return request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function register(email: string, password: string): Promise<TokenResponse> {
+  return request("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function getMe(): Promise<User> {
+  return request("/auth/me");
 }
 
 export function searchPapers(body: SearchRequest): Promise<SearchResponse> {
@@ -39,7 +83,7 @@ export function getCorpusStats(): Promise<{ total_papers: number }> {
 
 export function getPaper(id: string): Promise<Paper> {
   return request<Record<string, unknown>>(`/papers/${id}`).then((data) => ({
-    ...(data as Paper),
+    ...(data as unknown as Paper),
     id: String(data.id ?? data._id ?? id),
   }));
 }
@@ -103,17 +147,19 @@ export function searchArxiv(query: string, limit: number): Promise<ArxivSearchRe
 }
 
 export async function importJsonBulk(file: File): Promise<BulkImportAccepted> {
+  const headers = new Headers(authHeaders());
   const form = new FormData();
   form.append("file", file);
 
   const response = await fetch(`${API_BASE}/papers/import/json`, {
     method: "POST",
+    headers,
     body: form,
   });
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `Request failed (${response.status})`);
+    throw new Error(parseErrorMessage(detail, response.status));
   }
 
   return response.json() as Promise<BulkImportAccepted>;
@@ -144,10 +190,9 @@ export async function pollImportTask(
   }
 }
 
-export type InteractionType = "view" | "save" | "click" | "rating";
+export type InteractionType = "save" | "rating";
 
 export function recordInteraction(body: {
-  user_id: string;
   paper_id: string;
   interaction_type: InteractionType;
   rating?: number;
@@ -158,20 +203,32 @@ export function recordInteraction(body: {
   });
 }
 
-export function getSavedPaperIds(userId: string): Promise<string[]> {
-  return request<{ user_id: string; paper_ids: string[] }>(
-    `/interactions/users/${encodeURIComponent(userId)}/saved`,
-  ).then((data) => data.paper_ids);
+export function recordPaperView(paperId: string): Promise<{ status: string }> {
+  return request(`/interactions/views/${encodeURIComponent(paperId)}`, {
+    method: "POST",
+  });
 }
 
-export function getPaperRating(userId: string, paperId: string): Promise<number | null> {
+export function recordPaperClick(paperId: string): Promise<{ status: string }> {
+  return request(`/interactions/clicks/${encodeURIComponent(paperId)}`, {
+    method: "POST",
+  });
+}
+
+export function getSavedPaperIds(): Promise<string[]> {
+  return request<{ user_id: string; paper_ids: string[] }>("/interactions/me/saved").then(
+    (data) => data.paper_ids,
+  );
+}
+
+export function getPaperRating(paperId: string): Promise<number | null> {
   return request<{ user_id: string; paper_id: string; rating: number | null }>(
-    `/interactions/users/${encodeURIComponent(userId)}/papers/${encodeURIComponent(paperId)}/rating`,
+    `/interactions/me/papers/${encodeURIComponent(paperId)}/rating`,
   ).then((data) => data.rating);
 }
 
-export function unsavePaper(userId: string, paperId: string): Promise<void> {
-  return request(`/interactions/users/${encodeURIComponent(userId)}/saved/${encodeURIComponent(paperId)}`, {
+export function unsavePaper(paperId: string): Promise<void> {
+  return request(`/interactions/me/saved/${encodeURIComponent(paperId)}`, {
     method: "DELETE",
   }).then(() => undefined);
 }
@@ -217,8 +274,8 @@ export function importPaperSync(input: ManualPaperInput, enrich = true): Promise
   });
 }
 
-export async function getSavedPapers(userId: string): Promise<Paper[]> {
-  const ids = await getSavedPaperIds(userId);
+export async function getSavedPapers(): Promise<Paper[]> {
+  const ids = await getSavedPaperIds();
   const results = await Promise.allSettled(ids.map((id) => getPaper(id)));
   return results
     .filter((result): result is PromiseFulfilledResult<Paper> => result.status === "fulfilled")

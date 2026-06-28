@@ -6,17 +6,19 @@ import {
   getPaper,
   getSavedPaperIds,
   recordInteraction,
+  recordPaperView,
   unsavePaper,
 } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import PaperCard from "../components/PaperCard";
 import PaperRating from "../components/PaperRating";
-import { getUserId } from "../lib/userId";
+import { useAuth } from "../context/AuthContext";
 import type { Paper } from "../types";
 
 export default function PaperPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
   const [paper, setPaper] = useState<Paper | null>(null);
   const [citations, setCitations] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,40 +33,40 @@ export default function PaperPage() {
     if (!id) return;
     setLoading(true);
 
-    const userId = getUserId();
+    const savedPromise = user ? getSavedPaperIds() : Promise.resolve([] as string[]);
 
-    Promise.all([getPaper(id), getCitationDois(id), getSavedPaperIds(userId)])
+    Promise.all([getPaper(id), getCitationDois(id), savedPromise])
       .then(([p, dois, savedIds]) => {
         setPaper(p);
         setCitations(dois);
         setSaved(savedIds.includes(id));
 
-        recordInteraction({
-          user_id: userId,
-          paper_id: id,
-          interaction_type: "view",
-        }).catch(() => undefined);
+        if (user) {
+          recordPaperView(id).catch(() => undefined);
+        }
       })
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load")
       )
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, user]);
 
   async function toggleSave() {
     if (!id || saveBusy) return;
+    if (!user) {
+      navigate("/login", { state: { from: `/papers/${id}` } });
+      return;
+    }
 
-    const userId = getUserId();
     setSaveBusy(true);
     setSaveError(null);
 
     try {
       if (saved) {
-        await unsavePaper(userId, id);
+        await unsavePaper(id);
         setSaved(false);
       } else {
         await recordInteraction({
-          user_id: userId,
           paper_id: id,
           interaction_type: "save",
         });
@@ -169,31 +171,43 @@ export default function PaperPage() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleSave}
-            disabled={saveBusy}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
-              saved
-                ? "border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100"
-                : "border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:text-brand-700"
-            }`}
-          >
-            {saved ? "Saved" : "Save paper"}
-          </button>
+          {user ? (
+            <button
+              type="button"
+              onClick={toggleSave}
+              disabled={saveBusy}
+              className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${
+                saved
+                  ? "border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:text-brand-700"
+              }`}
+            >
+              {saved ? "Saved" : "Save paper"}
+            </button>
+          ) : (
+            <Link
+              to={`/login`}
+              state={{ from: `/papers/${id}` }}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:border-brand-300 hover:text-brand-700"
+            >
+              Sign in to save
+            </Link>
+          )}
 
           {saveError && (
             <span className="text-xs text-red-600">{saveError}</span>
           )}
 
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleteBusy}
-            className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-          >
-            Delete paper
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleteBusy}
+              className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+            >
+              Delete paper
+            </button>
+          )}
 
           {deleteError && (
             <span className="text-xs text-red-600">{deleteError}</span>
@@ -201,8 +215,14 @@ export default function PaperPage() {
         </div>
 
         <div className="mt-3">
-          {id && (
-            <PaperRating paperId={id} userId={getUserId()} />
+          {id && user && <PaperRating paperId={id} />}
+          {id && !user && (
+            <p className="text-sm text-muted">
+              <Link to="/login" state={{ from: `/papers/${id}` }} className="text-brand-600 hover:underline">
+                Sign in
+              </Link>{" "}
+              to rate this paper.
+            </p>
           )}
         </div>
 

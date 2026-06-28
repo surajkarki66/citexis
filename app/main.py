@@ -14,8 +14,10 @@ from app.db.mongodb import close_mongodb, get_database
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    await ensure_paper_indexes(get_database(settings))
+    db = get_database(settings)
+    await ensure_paper_indexes(db)
     wire_app_state(app)
+    await app.state.auth_service.ensure_bootstrap_admin()
     yield
     await close_mongodb()
     await close_elasticsearch()

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getTopicClusters } from "../api/client";
 import EmptyState from "../components/EmptyState";
-import { recordPaperClick } from "../lib/interactions";
+import { recordPaperClickSafe } from "../lib/interactions";
 import type { TopicCluster } from "../types";
 
 const POPULAR_TAGS = [
@@ -120,7 +120,7 @@ export default function ExplorePage() {
                     <li key={paper.id} className="truncate">
                       <Link
                         to={`/papers/${paper.id}`}
-                        onClick={() => recordPaperClick(paper.id)}
+                        onClick={() => recordPaperClickSafe(paper.id)}
                         className="text-slate-600 hover:text-brand-600 hover:underline"
                       >
                         · {paper.title}

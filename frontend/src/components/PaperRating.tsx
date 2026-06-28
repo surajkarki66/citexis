@@ -3,49 +3,34 @@ import { getPaperRating, recordInteraction } from "../api/client";
 
 interface PaperRatingProps {
   paperId: string;
-  userId: string;
 }
 
 const STARS = [1, 2, 3, 4, 5] as const;
 
-export default function PaperRating({ paperId, userId }: PaperRatingProps) {
+export default function PaperRating({ paperId }: PaperRatingProps) {
   const [rating, setRating] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getPaperRating(userId, paperId)
+    getPaperRating(paperId)
       .then((value) => setRating(value))
       .catch(() => undefined);
-  }, [userId, paperId]);
+  }, [paperId]);
 
   async function submit(value: number) {
     setBusy(true);
     setError(null);
     try {
       await recordInteraction({
-        user_id: userId,
         paper_id: paperId,
         interaction_type: "rating",
         rating: value,
       });
       setRating(value);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to save rating";
-      try {
-        const parsed = JSON.parse(message) as { detail?: unknown };
-        if (Array.isArray(parsed.detail)) {
-          const first = parsed.detail[0] as { msg?: string };
-          setError(first.msg ?? message);
-        } else if (typeof parsed.detail === "string") {
-          setError(parsed.detail);
-        } else {
-          setError(message);
-        }
-      } catch {
-        setError(message);
-      }
+      setError(err instanceof Error ? err.message : "Failed to save rating");
     } finally {
       setBusy(false);
     }

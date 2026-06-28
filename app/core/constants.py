@@ -19,3 +19,8 @@ class RecommendationReason(StrEnum):
     SEMANTIC = "semantically similar"
     CITATION = "cited together"
     COLLABORATIVE = "readers also saved"
+
+
+class UserRole(StrEnum):
+    USER = "user"
+    ADMIN = "admin"

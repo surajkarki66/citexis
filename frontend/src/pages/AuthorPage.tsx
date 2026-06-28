@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getAuthorPapers } from "../api/client";
 import EmptyState from "../components/EmptyState";
-import { recordPaperClick } from "../lib/interactions";
+import { recordPaperClickSafe } from "../lib/interactions";
 import type { AuthorPaper } from "../types";
 
 export default function AuthorPage() {
@@ -59,7 +59,7 @@ export default function AuthorPage() {
             <li key={p.id}>
               <Link
                 to={`/papers/${p.id}`}
-                onClick={() => recordPaperClick(p.id)}
+                onClick={() => recordPaperClickSafe(p.id)}
                 className="flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-brand-50/50"
               >
                 <div className="min-w-0">

@@ -1,5 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.repositories.account_repository import AccountRepository
 from app.repositories.paper_repository import PaperRepository
 from app.repositories.user_repository import UserInteractionRepository
 
@@ -13,6 +14,9 @@ async def ensure_paper_indexes(db: AsyncIOMotorDatabase) -> None:
         sparse=True,
         name="doi_unique",
     )
+
+    users = db[AccountRepository.COLLECTION]
+    await users.create_index([("email", 1)], unique=True, name="email_unique")
 
     interactions = db[UserInteractionRepository.COLLECTION]
     await interactions.create_index([("paper_id", 1), ("user_id", 1)], name="paper_user")

@@ -2,11 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getSavedPapers, unsavePaper } from "../api/client";
 import EmptyState from "../components/EmptyState";
-import { getUserId } from "../lib/userId";
 import type { Paper } from "../types";
 
 export default function SavedPage() {
-  const userId = getUserId();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +14,7 @@ export default function SavedPage() {
     setLoading(true);
     setError(null);
     try {
-      setPapers(await getSavedPapers(userId));
+      setPapers(await getSavedPapers());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load saved papers");
     } finally {
@@ -26,12 +24,12 @@ export default function SavedPage() {
 
   useEffect(() => {
     loadSaved();
-  }, [userId]);
+  }, []);
 
   async function handleUnsave(paperId: string) {
     setBusyId(paperId);
     try {
-      await unsavePaper(userId, paperId);
+      await unsavePaper(paperId);
       setPapers((current) => current.filter((paper) => paper.id !== paperId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove save");
@@ -43,7 +41,7 @@ export default function SavedPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <h1 className="font-serif text-3xl text-brand-900">Saved papers</h1>
-      <p className="mt-2 text-sm text-muted">Papers you saved in this browser.</p>
+      <p className="mt-2 text-sm text-muted">Papers you saved to your account.</p>
 
       {error && (
         <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

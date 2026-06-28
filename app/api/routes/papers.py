@@ -1,6 +1,7 @@
 import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
+from app.api.auth_deps import AdminUserDep
 from app.api.deps import IngestionDep, PaperRepoDep, RecommendationsDep, SettingsDep
 from app.core.schemas.arxiv import ArxivSearchResponse
 from app.core.schemas.doi_import import DoiBulkImportRequest
@@ -50,7 +51,11 @@ async def get_related(paper_id: str, recommendations: RecommendationsDep) -> Rec
 
 
 @router.delete("/{paper_id}", response_model=dict)
-async def delete_paper(paper_id: str, pipeline: IngestionDep) -> dict:
+async def delete_paper(
+    paper_id: str,
+    _: AdminUserDep,
+    pipeline: IngestionDep,
+) -> dict:
     deleted = await pipeline.delete_paper(paper_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
@@ -58,7 +63,7 @@ async def delete_paper(paper_id: str, pipeline: IngestionDep) -> dict:
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_paper(body: PaperCreate) -> dict:
+async def ingest_paper(body: PaperCreate, _: AdminUserDep) -> dict:
     """Queue async indexing. Returns task id."""
     task = index_paper_task.delay(body.model_dump())
     return {"status": "accepted", "task_id": task.id}
@@ -67,6 +72,7 @@ async def ingest_paper(body: PaperCreate) -> dict:
 @router.post("/sync", response_model=dict)
 async def ingest_paper_sync(
     body: PaperCreate,
+    _: AdminUserDep,
     pipeline: IngestionDep,
     enrich: bool = True,
 ) -> dict:
@@ -112,6 +118,7 @@ async def ingest_paper_sync(
 
 @router.post("/import/json", status_code=status.HTTP_202_ACCEPTED)
 async def import_json_bulk(
+    _: AdminUserDep,
     settings: SettingsDep,
     file: UploadFile = File(...),
 ) -> dict:
@@ -164,6 +171,7 @@ async def import_json_bulk(
 
 @router.post("/import/openalex", status_code=status.HTTP_202_ACCEPTED)
 async def import_openalex(
+    _: AdminUserDep,
     query: str = "machine learning",
     limit: int = 50,
     enrich: bool = True,
@@ -180,6 +188,7 @@ async def import_openalex(
 
 @router.post("/import/doi/bulk", status_code=status.HTTP_202_ACCEPTED)
 async def import_dois_bulk(
+    _: AdminUserDep,
     settings: SettingsDep,
     body: DoiBulkImportRequest,
 ) -> dict:
@@ -215,7 +224,7 @@ async def import_dois_bulk(
 
 
 @router.post("/import/doi", status_code=status.HTTP_202_ACCEPTED)
-async def import_doi(doi: str, enrich: bool = True) -> dict:
+async def import_doi(_: AdminUserDep, doi: str, enrich: bool = True) -> dict:
     task = ingest_doi_task.delay(doi, enrich)
     return {"status": "accepted", "task_id": task.id, "source": "crossref"}
 
@@ -223,6 +232,7 @@ async def import_doi(doi: str, enrich: bool = True) -> dict:
 @router.post("/import/{source}", status_code=status.HTTP_202_ACCEPTED)
 async def import_from_source(
     source: str,
+    _: AdminUserDep,
     query: str = "machine learning",
     limit: int = 50,
     enrich: bool = True,
@@ -239,6 +249,7 @@ async def import_from_source(
 
 @router.post("/import/doi/sync", response_model=dict)
 async def import_doi_sync(
+    _: AdminUserDep,
     doi: str,
     pipeline: IngestionDep,
     enrich: bool = True,
@@ -253,6 +264,7 @@ async def import_doi_sync(
 
 @router.get("/import/arxiv/search", response_model=ArxivSearchResponse)
 async def search_arxiv(
+    _: AdminUserDep,
     query: str,
     limit: int = 10,
 ) -> ArxivSearchResponse:
@@ -279,6 +291,7 @@ async def search_arxiv(
 
 @router.post("/import/openalex/sync", response_model=dict)
 async def import_openalex_sync(
+    _: AdminUserDep,
     settings: SettingsDep,
     pipeline: IngestionDep,
     query: str = "machine learning",

@@ -5,8 +5,10 @@ from fastapi import Depends, Request
 from app.config import Settings, get_settings
 from app.db.elasticsearch import get_elasticsearch
 from app.db.mongodb import get_database
+from app.repositories.account_repository import AccountRepository
 from app.repositories.paper_repository import PaperRepository
 from app.repositories.user_repository import UserInteractionRepository
+from app.services.auth.service import AuthService
 from app.services.ingestion.pipeline import IngestionPipeline
 from app.services.indexing.elasticsearch_indexer import ElasticsearchIndexer
 from app.services.indexing.pinecone_indexer import PineconeIndexer
@@ -15,6 +17,14 @@ from app.services.recommendations.engine import RecommendationEngine
 from app.services.search.hybrid import HybridSearchService
 from app.services.search.keyword import KeywordSearchService
 from app.services.search.semantic import SemanticSearchService
+
+
+def get_account_repo(request: Request) -> AccountRepository:
+    return request.app.state.account_repo
+
+
+def get_auth_service(request: Request) -> AuthService:
+    return request.app.state.auth_service
 
 
 def get_paper_repo(request: Request) -> PaperRepository:
@@ -67,6 +77,7 @@ def wire_app_state(app) -> None:
     es = get_elasticsearch(settings)
 
     paper_repo = PaperRepository(db)
+    account_repo = AccountRepository(db)
     user_repo = UserInteractionRepository(db)
     es_indexer = ElasticsearchIndexer(settings, es)
     pinecone_indexer = PineconeIndexer(settings)
@@ -74,7 +85,9 @@ def wire_app_state(app) -> None:
     semantic_search = SemanticSearchService(settings)
 
     app.state.paper_repo = paper_repo
+    app.state.account_repo = account_repo
     app.state.user_repo = user_repo
+    app.state.auth_service = AuthService(settings, account_repo)
     app.state.ingestion_pipeline = IngestionPipeline(
         settings, paper_repo, es_indexer, pinecone_indexer
     )

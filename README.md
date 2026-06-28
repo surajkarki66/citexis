@@ -13,7 +13,7 @@ Citexis splits work across three stores and two runtimes:
 | **MongoDB**        | Canonical paper metadata, embedding status, user interactions |
 | **Elasticsearch**  | BM25 keyword search over title/abstract                       |
 | **Pinecone**       | Text records in `papers-abstract`; index embeds server-side |
-| **FastAPI**        | HTTP API, dependency wiring, request handling                 |
+| **FastAPI**        | HTTP API, JWT auth, dependency wiring, request handling       |
 | **Celery + Redis** | Background ingestion and indexing (retries, bulk import)      |
 
 ```mermaid
@@ -141,7 +141,8 @@ paper_id
 
 | Goal                           | Start here                                                                                                                                       |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| New API endpoint               | `app/api/routes/` + register in `routes/__init__.py`; add a dep in `deps.py` if you need a new service                                     |
+| New API endpoint               | `app/api/routes/` + register in `routes/__init__.py`; add a dep in `deps.py` or `auth_deps.py` if you need a new service                |
+| Auth / access control          | `app/api/auth_deps.py`, `app/services/auth/service.py`, `app/api/routes/auth.py`                                                          |
 | New paper source               | `app/services/ingestion/sources/` (implement `base.py`), call from a route or Celery task                                                    |
 | arXiv DOI lookup               | `app/services/ingestion/sources/arxiv.py` + `GET /papers/import/arxiv/search`                                                                |
 | Tune search                    | `app/config.py` (`search_*`, `pinecone_*`), `hybrid.py`, `rrf.py`                                                                      |
@@ -157,32 +158,38 @@ paper_id
 citexis/
 ├── frontend/                       # React UI (Vite + TypeScript + Tailwind)
 │   └── src/
-│       ├── api/client.ts           # API client
-│       ├── components/             # Layout, SearchBar, PaperCard, PaperRating, …
-│       └── pages/                  # Home, Paper, Related, Explore, Saved, Import, Author
+│       ├── api/client.ts           # API client (JWT bearer)
+│       ├── context/AuthContext.tsx # Sign-in state + token storage
+│       ├── components/             # Layout, SearchBar, PaperCard, PaperRating, ProtectedRoute, …
+│       └── pages/                  # Home, Paper, Related, Explore, Saved, Import, Author, Login, Register
 ├── app/
 │   ├── main.py                     # FastAPI app + lifespan (wire / teardown)
 │   ├── config.py                   # Settings from .env
 │   ├── api/
 │   │   ├── deps.py                 # Dependency injection + wire_app_state
+│   │   ├── auth_deps.py            # JWT deps: CurrentUserDep, AdminUserDep
 │   │   └── routes/
+│   │       ├── auth.py             # POST /auth/login, /register; GET /auth/me
 │   │       ├── search.py           # POST /search (hybrid)
-│   │       ├── papers.py           # CRUD, sync/async ingest, related
-│   │       ├── tasks.py            # GET /tasks/{id} — Celery task polling
-│   │       ├── interactions.py     # views, saves, ratings, clicks
+│   │       ├── papers.py           # CRUD, sync/async ingest, related (import/delete: admin)
+│   │       ├── tasks.py            # GET /tasks/{id} — Celery task polling (admin)
+│   │       ├── interactions.py     # saves, ratings, views, clicks (auth for writes)
 │   │       ├── authors.py          # Author paper lists
 │   │       └── explore.py          # Topic clusters, citation neighbors
 │   ├── core/
-│   │   ├── constants.py            # Enums (embedding status, etc.)
-│   │   └── schemas/                # paper, search, user, recommendation, arxiv, json_import, doi_import
+│   │   ├── constants.py            # Enums (embedding status, user roles, …)
+│   │   └── schemas/                # paper, search, user, auth, recommendation, arxiv, json_import, doi_import
 │   ├── db/
 │   │   ├── mongodb.py
 │   │   ├── elasticsearch.py
 │   │   └── pinecone_client.py
 │   ├── repositories/
 │   │   ├── paper_repository.py
-│   │   └── user_repository.py
+│   │   ├── user_repository.py      # user_interactions collection
+│   │   └── account_repository.py   # users collection (auth accounts)
 │   ├── services/
+│   │   ├── auth/
+│   │   │   └── service.py          # JWT, bcrypt, bootstrap admin
 │   │   ├── ingestion/
 │   │   │   ├── pipeline.py         # ingest_one / ingest_many / index_paper
 │   │   │   ├── json_import.py      # parse & validate bulk JSON uploads
@@ -198,7 +205,7 @@ citexis/
 ├── fixtures/
 │   └── sample_papers.json          # Example JSON bulk import file
 ├── scripts/
-│   ├── setup_es_index.py           # Create ES index (used by es-init)
+│   ├── setup_es_index.py           # Create ES index + auto-backfill (es-init)
 │   ├── reindex_elasticsearch.py    # Mongo → ES backfill
 │   ├── reindex_pinecone.py         # Mongo ↔ Pinecone audit + backfill
 │   └── cleanup_orphan_indexes.py   # Remove ES/Pinecone rows with no Mongo doc
@@ -212,13 +219,15 @@ citexis/
 
 ### Option A — Docker (recommended)
 
-MongoDB and Pinecone stay **external** (your host MongoDB or Atlas + Pinecone API key).
-Redis and Elasticsearch run in Docker.
+MongoDB and Pinecone stay **external** (Atlas or host MongoDB + Pinecone API key).
+Elasticsearch, Redis, API, worker, and frontend run via Docker Compose.
+
+On **Linux**, services use **`network_mode: host`** so containers can reach Atlas/Pinecone and bind directly to host ports (Docker’s bridge DNS/port-proxy is unreliable on some setups).
 
 ```bash
 # 1. Configure environment (all variables required — see .env.example)
 cp .env.example .env
-# Edit .env: MONGODB_URI, PINECONE_API_KEY, and remaining values
+# Edit .env: MONGODB_URI, PINECONE_API_KEY, JWT_SECRET_KEY, AUTH_ADMIN_*, and remaining values
 
 # 2. Stop any old Elasticsearch container using port 9200
 docker stop elasticsearch 2>/dev/null || true
@@ -229,13 +238,31 @@ docker compose up --build
 
 | URL                        | Service                                                |
 | -------------------------- | ------------------------------------------------------ |
-| http://localhost:5173      | Frontend                                               |
+| http://localhost:5173      | Frontend (Vite dev server)                             |
 | http://localhost:8000/docs | API docs                                               |
 | http://localhost:9200      | Elasticsearch                                          |
-| localhost:6380 (default)   | Redis (host port; see `REDIS_HOST_PORT` in `.env`) |
+| localhost:6380 (default)   | Redis (see `REDIS_HOST_PORT` in `.env`)              |
 
-If port **6380** is also in use, set `REDIS_HOST_PORT=6381` (or any free port) in `.env`.
-Inside Docker, api/worker always use `redis://redis:6379/0` — only the **host mapping** changes.
+**First sign-in:** set `AUTH_ADMIN_EMAIL` and `AUTH_ADMIN_PASSWORD` in `.env`. The API creates or updates that admin account on startup. Use it to access **Import** and paper **delete** in the UI.
+
+Generate a strong JWT secret:
+
+```bash
+openssl rand -hex 32
+```
+
+**`.env` notes for Docker (host networking)**
+
+Compose overrides `ELASTICSEARCH_URL` and `REDIS_URL` for `api` / `worker` / `es-init` to `127.0.0.1`. Your `.env` can keep local-dev values; what matters for MongoDB and external APIs:
+
+| Variable | Docker recommendation |
+| -------- | ----------------------- |
+| `MONGODB_URI` | Prefer a **standard** `mongodb://…` Atlas URI with explicit shard hosts. Avoid `mongodb+srv://` if container DNS cannot resolve SRV records. |
+| `JWT_SECRET_KEY` | Required — random hex string |
+| `AUTH_ADMIN_EMAIL` / `AUTH_ADMIN_PASSWORD` | Bootstrap admin for import/delete |
+| `REDIS_HOST_PORT` | Default `6380` — Redis listens on this host port |
+
+If port **6380** is in use, set `REDIS_HOST_PORT=6381` (or any free port) in `.env` and restart Compose.
 
 **Infra only** (run API/frontend on the host):
 
@@ -251,15 +278,15 @@ REDIS_URL=redis://localhost:6380/0
 MONGODB_URI=mongodb://localhost:27017
 ```
 
-Use the same host port as `REDIS_HOST_PORT` in `.env` (default **6380**).
+Use the same port as `REDIS_HOST_PORT` in `.env` (default **6380**).
 
-**MongoDB from containers**
+**MongoDB**
 
-| MongoDB location               | `MONGODB_URI` in `.env`              |
-| ------------------------------ | ---------------------------------------- |
-| Atlas                          | `mongodb+srv://...`                    |
-| MongoDB on your Linux/Mac host | `mongodb://host.docker.internal:27017` |
-| MongoDB on your Windows host   | `mongodb://host.docker.internal:27017` |
+| MongoDB location | `MONGODB_URI` in `.env` |
+| ---------------- | ----------------------- |
+| Atlas (Docker) | Standard `mongodb://user:pass@shard-host:27017,…/?ssl=true&replicaSet=…` (copy shard hosts from Atlas “standard connection string”) |
+| Atlas (local API) | `mongodb+srv://…` or standard URI |
+| MongoDB on host | `mongodb://localhost:27017` |
 
 ### Option B — Local Python + Node
 
@@ -304,19 +331,20 @@ CI runs `ruff check .` on every push/PR (`.github/workflows/ci.yml`).
 
 ## Frontend
 
-React UI in `frontend/` (Vite + TypeScript + Tailwind). Nav: **Search**, **Explore**, **Saved**, **Import**.
+React UI in `frontend/` (Vite + TypeScript + Tailwind). Nav: **Search**, **Explore**, **Saved** (signed in), **Import** (admin).
 
 | Route                   | Features                                                                                       | API                                                                                                                                                                               |
 | ----------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                   | Hybrid search with filters; indexed corpus count; click tracking on results                    | `GET /papers/stats`, `POST /search`, `POST /interactions` (click)                                                                                                           |
-| `/papers/:id`         | Detail, references, related preview, save/unsave, 1–5 rating, delete                          | `GET /papers/{id}`, `GET /explore/papers/{id}/neighbors`, `POST /interactions`, `DELETE /papers/{id}`                                                                     |
+| `/`                   | Hybrid search with filters; indexed corpus count; click tracking on results                    | `GET /papers/stats`, `POST /search`, `POST /interactions/clicks/{id}` (signed in)                                                                                           |
+| `/login`, `/register` | Sign in / create account                                                                       | `POST /auth/login`, `POST /auth/register`                                                                                                                                       |
+| `/papers/:id`         | Detail, references, related preview, save/unsave (signed in), rating (signed in), delete (admin) | `GET /papers/{id}`, `GET /explore/papers/{id}/neighbors`, `POST /interactions`, `DELETE /papers/{id}`                                                                     |
 | `/papers/:id/related` | Full related-papers list                                                                       | `GET /papers/{id}/related`                                                                                                                                                      |
 | `/explore?tag=…`     | Papers grouped by matching tags (MongoDB; partial tag match)                                   | `GET /explore/topics`                                                                                                                                                           |
-| `/saved`              | Saved papers list, unsave                                                                      | `GET /interactions/users/{id}/saved`, `DELETE …/saved/{paper_id}`                                                                                                            |
-| `/import`             | Multi-DOI, OpenAlex bulk, JSON upload (background), arXiv DOI extraction, manual ingest (sync) | `POST /papers/import/doi/bulk`, `POST /papers/import/openalex`, `POST /papers/import/json`, `GET /tasks/{id}`, `GET /papers/import/arxiv/search`, `POST /papers/sync` |
-| `/authors/:name`      | Papers by author; click tracking                                                               | `GET /authors/{name}/papers`, `POST /interactions` (click)                                                                                                                    |
+| `/saved`              | Saved papers list, unsave (signed in)                                                          | `GET /interactions/me/saved`, `DELETE /interactions/me/saved/{paper_id}`                                                                                                     |
+| `/import`             | Multi-DOI, OpenAlex bulk, JSON upload (background), arXiv DOI extraction, manual ingest (admin) | `POST /papers/import/doi/bulk`, `POST /papers/import/openalex`, `POST /papers/import/json`, `GET /tasks/{id}`, `GET /papers/import/arxiv/search`, `POST /papers/sync` |
+| `/authors/:name`      | Papers by author; click tracking (signed in)                                                   | `GET /authors/{name}/papers`, `POST /interactions/clicks/{id}`                                                                                                                |
 
-User identity is a browser-local ID (`localStorage`) used for saves, ratings, and interaction history.
+**Authentication:** JWT bearer tokens stored in the browser. Search and read endpoints are public; saves/ratings require sign-in; import/delete/task polling require an **admin** account. The frontend sends `Authorization: Bearer <token>` on API calls after login.
 
 **With Docker** (included in `docker compose up`): http://localhost:5173
 
@@ -344,25 +372,25 @@ Base path: `/api/v1`. Interactive docs: http://localhost:8000/docs
 | GET    | `/papers/stats`                  | Total papers in MongoDB corpus            | Home page               |
 | GET    | `/papers/{id}`                   | Paper detail + top recommendations        | Paper page              |
 | GET    | `/papers/{id}/related`           | Blended recommendations                   | Related page            |
-| DELETE | `/papers/{id}`                   | Delete paper from MongoDB + ES + Pinecone | Paper page              |
+| DELETE | `/papers/{id}`                   | Delete paper from MongoDB + ES + Pinecone (**admin**) | Paper page              |
 | GET    | `/authors/{name}/papers`         | Author paper list                         | Author page             |
 | GET    | `/explore/topics?tag=…`         | Papers with similar tags, grouped by tag  | Explore page            |
 | GET    | `/explore/papers/{id}/neighbors` | Citation DOI neighbors                    | Paper page (references) |
 
-### Import (sync — manual entry only)
+### Import (sync — manual entry only, **admin**)
 
 | Method | Path             | Description                                | UI          |
 | ------ | ---------------- | ------------------------------------------ | ----------- |
 | POST   | `/papers/sync` | Manual paper ingest (blocks until indexed) | Import page |
 
-Sync import endpoints for scripts (not used by the Import page UI):
+Sync import endpoints for scripts (**admin**, not used by the Import page UI):
 
 | Method | Path                             | Description                                            |
 | ------ | -------------------------------- | ------------------------------------------------------ |
 | POST   | `/papers/import/doi/sync`      | Single DOI via Crossref (+ OpenAlex abstract fallback) |
 | POST   | `/papers/import/openalex/sync` | OpenAlex search import (blocks until done)             |
 
-### Import (async — Celery, used by UI for bulk flows)
+### Import (async — Celery, **admin**, used by UI for bulk flows)
 
 | Method | Path                            | Description                                 | UI                            |
 | ------ | ------------------------------- | ------------------------------------------- | ----------------------------- |
@@ -378,7 +406,7 @@ Poll task status after any `202 Accepted` import:
 
 | Method | Path                 | Description                         | UI                      |
 | ------ | -------------------- | ----------------------------------- | ----------------------- |
-| GET    | `/tasks/{task_id}` | Celery state + result when complete | Import page (auto-poll) |
+| GET    | `/tasks/{task_id}` | Celery state + result when complete (**admin**) | Import page (auto-poll) |
 
 Requires the **worker** (`celery -A app.workers.celery_app worker` or the `worker` Compose service).
 
@@ -393,19 +421,30 @@ Explore uses **MongoDB only** (not Pinecone or Elasticsearch):
 
 Tags are populated on **OpenAlex** import (keywords/concepts) or **manual** ingest. Crossref DOI imports usually have empty tags unless added manually.
 
-### Interactions
+### Interactions (authenticated)
 
 | Method | Path                                                       | Description                                         | UI                               |
 | ------ | ---------------------------------------------------------- | --------------------------------------------------- | -------------------------------- |
-| POST   | `/interactions`                                          | Record `view`, `save`, `click`, or `rating` | Paper page, search/author clicks |
-| GET    | `/interactions/users/{user_id}/saved`                    | List saved paper IDs                                | Saved page                       |
-| DELETE | `/interactions/users/{user_id}/saved/{paper_id}`         | Remove save                                         | Saved page, Paper page           |
-| GET    | `/interactions/users/{user_id}/papers/{paper_id}/rating` | User rating for a paper                             | Paper page                       |
+| POST   | `/interactions`                                          | Record `save` or `rating` (signed in)        | Paper page                       |
+| POST   | `/interactions/views/{paper_id}`                         | Record `view` (signed in; no-op if anonymous) | Paper page                       |
+| POST   | `/interactions/clicks/{paper_id}`                        | Record `click` (signed in; no-op if anonymous) | Search/author/explore clicks     |
+| GET    | `/interactions/me/saved`                                 | List saved paper IDs                                | Saved page                       |
+| DELETE | `/interactions/me/saved/{paper_id}`                      | Remove save                                         | Saved page, Paper page           |
+| GET    | `/interactions/me/papers/{paper_id}/rating`              | User rating for a paper                             | Paper page                       |
+
+### Auth
+
+| Method | Path              | Description              |
+| ------ | ----------------- | ------------------------ |
+| POST   | `/auth/register`  | Create account + JWT     |
+| POST   | `/auth/login`     | Sign in + JWT            |
+| GET    | `/auth/me`        | Current user (Bearer)    |
 
 ## Tech choices (defaults)
 
 | Component      | Default                                                              |
 | -------------- | -------------------------------------------------------------------- |
+| Auth           | JWT (HS256) + bcrypt; bootstrap admin from `.env`                    |
 | Pinecone embed | Index-configured hosted model (server-side)                          |
 | Queue          | Celery + Redis (required for bulk imports on the Import page)        |
 | Keyword search | Elasticsearch (Docker)                                               |
@@ -415,17 +454,35 @@ Tags are populated on **OpenAlex** import (keywords/concepts) or **manual** inge
 
 ## Docker layout
 
+All services use **`network_mode: host`** on Linux so they bind directly to host ports and use the host’s DNS (required for MongoDB Atlas and Pinecone from containers).
+
 ```
 docker compose up
-├── elasticsearch   → port 9200 (persistent volume es_data)
-├── redis           → host port 6380 by default (container 6379; volume redis_data)
-├── es-init         → one-shot: creates ES index
-├── api             → port 8000
-├── worker          → Celery consumer (required for DOI/OpenAlex/JSON bulk import UI)
-└── frontend        → port 5173
+├── elasticsearch   → host :9200 (volume es_data)
+├── redis           → host :6380 by default (volume redis_data; port from REDIS_HOST_PORT)
+├── es-init         → one-shot: creates ES index; backfills if ES is behind MongoDB
+├── api             → host :8000
+├── worker          → Celery consumer (same Redis/ES/Mongo as api)
+└── frontend        → host :5173 (Vite proxies /api → http://127.0.0.1:8000)
 ```
 
 MongoDB and Pinecone are **not** in Compose — configure them in `.env`.
+
+### Docker troubleshooting (Linux)
+
+If containers cannot resolve external hostnames or published ports hang when accessed from the browser:
+
+1. Ensure you are using **http://localhost:5173** and **http://localhost:8000** (not `172.x.x.x` addresses from container logs).
+2. Prefer a **standard** `mongodb://` Atlas URI over `mongodb+srv://` when running in Docker.
+3. Optionally fix Docker daemon DNS permanently in `/etc/docker/daemon.json`:
+
+```json
+{
+  "dns": ["8.8.8.8", "1.1.1.1"]
+}
+```
+
+Then restart Docker. The Compose file already uses host networking as the primary workaround.
 
 ## Maintenance scripts
 
@@ -435,9 +492,9 @@ Run from the project root via Docker (recommended) or locally with the same `.en
 docker compose run --rm api python -m scripts.<script>
 ```
 
-### Re-index Elasticsearch (fresh ES volume)
+### Re-index Elasticsearch
 
-MongoDB and Pinecone keep your data, but a new Elasticsearch volume starts empty:
+On `docker compose up`, **es-init** automatically backfills Elasticsearch when the index is new or has fewer documents than MongoDB. Use the script below to audit or force a full re-index:
 
 ```bash
 docker compose run --rm api python -m scripts.reindex_elasticsearch          # dry-run
